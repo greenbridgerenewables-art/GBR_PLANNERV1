@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Whereabouts Planner Pro (Local Cache Mode)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; overflow-x: hidden; }
+        
+        .sidebar-active { background-color: #eff6ff; border-left: 4px solid #3b82f6; color: #1d4ed8; font-weight: 700; }
+        .week-card { margin-bottom: 2.5rem; border-radius: 12px; background: white; border: 1px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .editable-cell { white-space: pre-wrap; word-break: break-word; min-height: 3.5em; padding: 8px 8px 18px 8px; outline: none; transition: background 0.2s; }
+        .editable-cell:focus { background: #fffbeb; box-shadow: inset 0 0 0 2px #fbbf24; border-radius: 4px; }
+        
+        .bank-holiday-col { background-color: #e2e8f0 !important; }
+
+        .leave-AL { background-color: #bbf7d0 !important; }
+        .leave-SICK { background-color: #fecaca !important; }
+        .leave-UNPAID { background-color: #e2e8f0 !important; }
+        .leave-OTHER { background-color: #ddd6fe !important; }
+        .leave-badge { font-weight: 900; font-size: 10px; text-transform: uppercase; text-align: center; padding: 4px 2px; letter-spacing: 0.05em; }
+        .leave-btn { position: absolute; top: 2px; left: 2px; font-size: 9px; font-weight: 900; background: white; border: 1px solid #cbd5e1; border-radius: 4px; padding: 1px 5px; opacity: 0; cursor: pointer; line-height: 1.5; color: #64748b; z-index: 4; }
+        .group\/cell:hover .leave-btn, .mobile-engineer-row .leave-btn { opacity: 1; }
+        .leave-menu { position: absolute; z-index: 60; background: white; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 6px; font-size: 11px; font-weight: 700; min-width: 140px; }
+        .leave-menu button { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px; }
+        .leave-menu button:hover { background: #f1f5f9; }
+        .job-pill[draggable="true"] { cursor: grab; }
+        .cell-dragover { outline: 2px dashed #3b82f6 !important; outline-offset: -2px; }
+        .site-info-ico { position: absolute; bottom: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #1e293b; color: white; font-size: 9px; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: help; z-index: 5; }
+        .site-info-ico:hover::after {
+            content: attr(data-tooltip); position: absolute; bottom: 130%; right: 0; background: #1e293b; color: white;
+            padding: 8px 10px; border-radius: 8px; font-size: 10px; font-weight: 700; white-space: pre-line;
+            width: 170px; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,0.25); z-index: 70; line-height: 1.5;
+        }
+        .job-pill-meta { font-size: 9px; color: #64748b; font-weight: 700; margin-top: 2px; }
+        .job-chip { position: relative; border-radius: 5px; padding: 2px 28px 2px 5px; font-size: 10px; font-weight: 800; margin-bottom: 2px; cursor: help; line-height: 1.3; }
+        .job-chip-text { display: block; word-break: break-word; }
+        .job-chip-x { position: absolute; top: 0; right: 2px; font-weight: 900; opacity: 0.5; cursor: pointer; font-size: 12px; }
+        .job-chip-x:hover { opacity: 1; }
+        .job-chip-link { position: absolute; top: 1px; right: 15px; opacity: 0.5; cursor: pointer; font-size: 9px; }
+        .job-chip-link:hover { opacity: 1; }
+        #jobList.joblist-dragover { background: #fef3c7; outline: 2px dashed #f59e0b; outline-offset: -4px; border-radius: 8px; }
+        .job-status-progress { outline: 2px dashed rgba(0,0,0,0.45); outline-offset: -2px; }
+        .job-status-complete { opacity: 0.55; text-decoration: line-through; }
+        .job-status-snagged { outline: 2px dashed #b91c1c; outline-offset: -2px; }
+        .job-chip:hover::after {
+            content: attr(data-tooltip); position: absolute; bottom: 100%; left: 0; background: #1e293b; color: white;
+            padding: 8px 10px; border-radius: 8px; font-size: 10px; font-weight: 700; white-space: pre-line;
+            width: 170px; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,0.25); z-index: 70; line-height: 1.5; margin-bottom: 4px;
+        }
+
+        /* --- MOBILE VIEW: DAY-BY-DAY LIST --- */
+        @media (max-width: 768px) {
+            .desktop-only { display: none !important; }
+            .mobile-header { display: flex !important; }
+            .main-content { padding: 12px !important; }
+            
+            /* Hide the standard table on mobile */
+            .week-table-container table { display: none; }
+            
+            /* Style the new mobile-only Day Cards */
+            .mobile-day-strip { background: #1e293b; color: white; padding: 8px 16px; font-weight: 900; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 1px;}
+            .mobile-engineer-row { display: flex; border-bottom: 1px solid #f1f5f9; background: white; }
+            .mobile-eng-name { width: 90px; padding: 12px 8px; font-size: 11px; font-weight: 900; border-right: 1px solid #f1f5f9; display: flex; align-items: center; flex-shrink: 0; }
+            .mobile-task-area { flex-grow: 1; padding: 4px; }
+        }
+
+        .print-disclaimer { display: none; }
+        @media print { 
+            @page { size: landscape; margin: 10mm; }
+            body, html { display: block !important; height: auto !important; position: static !important; background: white !important; font-size: 10px !important; }
+            .no-print { display: none !important; } 
+            aside { display: none !important; } 
+            main { width: 100% !important; padding: 0 !important; margin: 0 !important; display: block !important; } 
+            .week-card { box-shadow: none !important; border: 2px solid #94a3b8 !important; page-break-inside: avoid !important; }
+            table { width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; display: table !important;}
+            th, td { border: 1px solid #94a3b8 !important; padding: 4px !important; }
+            .mobile-only-content { display: none !important; } /* Ensure mobile view doesn't print */
+            .print-disclaimer { display: block !important; text-align: center; color: #dc2626 !important; font-weight: 900; margin-bottom: 10px; }
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-screen">
+
+    <div id="passGate" class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+            <h1 class="text-xl font-black text-slate-900 tracking-tight mb-1">Whereabouts</h1>
+            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6">Enter your name and the password to continue</p>
+            <input type="text" id="nameInput" placeholder="Your name" class="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-bold mb-2" onkeydown="if(event.key==='Enter') document.getElementById('passInput').focus()">
+            <input type="password" id="passInput" placeholder="Password" class="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-bold" onkeydown="if(event.key==='Enter') tryUnlock()">
+            <button onclick="tryUnlock()" class="mt-4 w-full bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase hover:bg-black transition-all">Unlock</button>
+            <p id="passError" class="text-red-500 text-[11px] font-bold mt-3 hidden">Please enter your name and the correct password.</p>
+        </div>
+    </div>
+
+    <header class="mobile-header hidden bg-slate-900 text-white p-4 justify-between items-center shadow-lg no-print sticky top-0 z-50">
+        <h1 class="font-black text-lg tracking-tight">WHEREABOUTS</h1>
+        <button onclick="toggleSidebar()" class="bg-blue-600 px-4 py-2 rounded-lg font-bold text-xs uppercase">Menu</button>
+    </header>
+
+    <aside id="sidebar" class="fixed inset-0 z-40 transform -translate-x-full transition-transform duration-300 md:relative md:translate-x-0 w-72 bg-white border-r border-slate-200 flex flex-col no-print h-full">
+        <div class="p-6 border-b flex justify-between items-center bg-white">
+            <div>
+                <h1 class="text-xl font-black text-slate-900 tracking-tight">Whereabouts</h1>
+                <p class="text-[10px] text-amber-500 font-bold uppercase mt-1 flex items-center gap-1" id="cloudStatus">
+                    <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="cloudDot"></span> <span id="cloudStatusText">Connecting...</span>
+                </p>
+            </div>
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-400 font-bold text-2xl">×</button>
+        </div>
+        <div class="p-4 space-y-3">
+            <input type="text" id="engSearch" oninput="handleSearch(this.value)" placeholder="Search engineer, site, postcode, notes..." class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+        <nav class="flex-1 overflow-y-auto px-4 py-2 space-y-6 bg-white">
+            <div><h2 class="px-3 text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Active Schedule</h2><div id="activeList" class="space-y-1"></div></div>
+            <div><h2 class="px-3 text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">Archive</h2><div id="archiveList" class="space-y-1 opacity-60"></div></div>
+        </nav>
+    </aside>
+
+    <main class="flex-1 overflow-y-auto p-4 md:p-8 relative main-content">
+        <div class="max-w-7xl mx-auto">
+            <div class="print-disclaimer">*** ALL SUBJECT TO CHANGE ***</div>
+
+            <!-- Mobile tab switcher - only visible on small screens -->
+            <div class="flex md:hidden gap-2 mb-4 no-print">
+                <button onclick="setMobileTab('diary')" id="tabDiary" class="flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-slate-900 text-white">📅 Diary</button>
+                <button onclick="setMobileTab('today')" id="tabToday" class="flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-slate-100 text-slate-600">👷 Today</button>
+                <button onclick="setMobileTab('week')" id="tabWeek" class="flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-slate-100 text-slate-600">📋 This Week</button>
+            </div>
+
+            <!-- MOBILE TODAY / WEEK VIEW -->
+            <div id="mobileQuickView" class="md:hidden hidden mb-6 no-print space-y-3"></div>
+
+            <div id="mainDiaryArea">
+                <div>
+                    <h2 id="currentViewMonth" class="text-3xl md:text-5xl font-black tracking-tighter text-slate-900">Loading...</h2>
+                    <div id="viewStatus" class="mt-2 inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest"></div>
+                </div>
+                <div class="flex gap-2 flex-wrap w-full md:w-auto">
+                    <button onclick="document.getElementById('importFile').click()" class="bg-slate-100 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-slate-200 transition-all flex-1 md:flex-none">Import JSON</button>
+                    <input type="file" id="importFile" accept="application/json" class="hidden" onchange="importData(this.files[0])">
+                    <button onclick="exportData()" class="bg-slate-100 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-slate-200 transition-all flex-1 md:flex-none">Export JSON</button>
+                    <button onclick="openLeaveReport()" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-emerald-100 transition-all flex-1 md:flex-none">Leave Report</button>
+                    <button onclick="openUtilisation()" class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-indigo-100 transition-all flex-1 md:flex-none">Utilisation</button>
+                    <button onclick="openActivityLog()" class="bg-slate-100 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-slate-200 transition-all flex-1 md:flex-none">Activity Log</button>
+                    <button onclick="openIcsExport()" class="bg-sky-50 text-sky-700 border border-sky-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-sky-100 transition-all flex-1 md:flex-none">Calendar Export</button>
+                    <button onclick="resetMonth()" class="bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-xl font-bold text-[10px] uppercase hover:bg-red-100 transition-all flex-1 md:flex-none">Reset Month</button>
+                    <button onclick="printWeek()" class="bg-slate-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-slate-600 transition-all flex-1 md:flex-none">Print Week</button>
+                    <button onclick="printMonth()" class="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-black transition-all flex-1 md:flex-none">Print Month</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 md:gap-10">
+                <div class="lg:col-span-3 space-y-8 w-full" id="scheduleContainer">
+                    <div class="bg-white p-20 rounded-3xl border-2 border-dashed border-slate-200 text-center text-slate-400 font-bold uppercase tracking-widest text-xs animate-pulse">
+                        Loading Cache...
+                    </div>
+                </div>
+
+                <div class="lg:col-span-1 no-print">
+                    <div class="sticky top-20 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
+                        <div class="bg-amber-500 p-4 text-white flex justify-between items-center">
+                            <h3 class="font-black text-xs flex items-center gap-2 uppercase">Pending Sites</h3>
+                            <button onclick="toggleJobForm()" id="jobFormToggle" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-[10px] font-black uppercase">+ Add</button>
+                        </div>
+                        <div id="jobForm" class="hidden p-4 bg-slate-50 border-b border-slate-100 space-y-2">
+                            <input type="text" id="jobName" placeholder="Site name *" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none font-bold">
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" id="jobLocation" placeholder="Location / town" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                                <input type="text" id="jobPostcode" placeholder="Postcode" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" id="jobSystemSize" placeholder="System size (kWp)" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                                <select id="jobSystemType" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                                    <option value="">Sys Type...</option>
+                                    <option>Standard</option>
+                                    <option>SolarEdge</option>
+                                    <option>SolShare</option>
+                                    <option>Sflex</option>
+                                    <option>Multi Apartments - Non SolShare</option>
+                                    <option>Batteries</option>
+                                    <option>Powerframe</option>
+                                    <option>Carport</option>
+                                    <option>EV Chargers</option>
+                                    <option>Other</option>
+                                </select>
+                            </div>
+                            <select id="jobMountingSystem" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                                <option value="">Mounting System...</option>
+                                <option>Viridian</option>
+                                <option>Pitched Slate</option>
+                                <option>Pitched Tiled</option>
+                                <option>In Roof GSE</option>
+                                <option>In Roof Other</option>
+                                <option>Standing Seam</option>
+                                <option>Metal Trap</option>
+                                <option>Flat Roof - VDV</option>
+                                <option>Flat Roof Other</option>
+                                <option>Bauder Bio</option>
+                                <option>Bauder XL</option>
+                                <option>Mechanical Fix</option>
+                                <option>Sflex</option>
+                                <option>Kalzip</option>
+                                <option>K2</option>
+                                <option>Wall Mount</option>
+                                <option>Canopy</option>
+                                <option>Ground Mount</option>
+                                <option>Other</option>
+                            </select>
+                            <select id="jobJobType" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                                <option value="">Job Type...</option>
+                                <option>Site Survey</option>
+                                <option>Panel Install</option>
+                                <option>Electrical Install</option>
+                                <option>Panel & Electrical Install</option>
+                                <option>Snags</option>
+                                <option>Commissioning</option>
+                                <option>Handover</option>
+                                <option>DNO Witness Testing</option>
+                                <option>Service</option>
+                                <option>Service Remedials</option>
+                            </select>
+                            <textarea id="jobNotes" placeholder="Notes - what needs doing..." rows="3" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none resize-none"></textarea>
+                            <button onclick="addJob()" class="w-full bg-slate-900 text-white py-2 rounded-lg font-black text-[11px] uppercase hover:bg-black">Add Site</button>
+                        </div>
+                        <div id="jobList" class="max-h-[300px] md:max-h-[450px] overflow-y-auto p-4 space-y-3 bg-white" ondragover="event.preventDefault(); this.classList.add('joblist-dragover')" ondragleave="this.classList.remove('joblist-dragover')" ondrop="returnJobToPending(event)"></div>
+                    </div>
+                </div>
+
+            </div><!-- end mainDiaryArea -->
+        </div>
+    </main>
+
+    <div id="leaveModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Leave Report</h3>
+                <button onclick="closeLeaveReport()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="p-4 border-b flex items-center gap-3">
+                <label class="text-[10px] font-black uppercase text-slate-500">Year</label>
+                <select id="leaveYearSelect" onchange="renderLeaveReport()" class="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold"></select>
+                <span class="text-[10px] text-slate-400 font-bold uppercase ml-auto">Jan 1 &mdash; Dec 31</span>
+            </div>
+            <div id="leaveReportBody" class="overflow-y-auto p-4 space-y-2"></div>
+        </div>
+    </div>
+
+    <div id="activityModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Activity Log</h3>
+                <button onclick="closeActivityLog()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div id="activityLogBody" class="overflow-y-auto p-4 space-y-1 text-xs"></div>
+        </div>
+    </div>
+
+    <div id="utilModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Utilisation &mdash; <span id="utilMonthLabel"></span></h3>
+                <button onclick="closeUtilisation()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div id="utilBody" class="overflow-y-auto p-4 space-y-2"></div>
+        </div>
+    </div>
+
+    <div id="icsModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Calendar Export</h3>
+                <button onclick="closeIcsExport()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-[11px] text-slate-500 font-bold">Exports the currently viewed month (<span id="icsMonthLabel"></span>) as a downloadable .ics file the engineer can subscribe to in their phone calendar.</p>
+                <label class="text-[10px] font-black uppercase text-slate-500">Engineer</label>
+                <select id="icsEngineerSelect" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold"></select>
+                <button onclick="downloadIcsForEngineer()" class="w-full bg-sky-600 text-white py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-sky-700">Download .ics</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="printWeekModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Print Week</h3>
+                <button onclick="closePrintWeekModal()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="p-5 space-y-3">
+                <label class="text-[10px] font-black uppercase text-slate-500">Select week to print</label>
+                <select id="printWeekSelect" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold"></select>
+                <button onclick="doPrintWeek()" class="w-full bg-slate-900 text-white py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-black">Print</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="leaveMenuHost"></div>
+
+    <div id="multiEngModal" class="fixed inset-0 z-[150] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black uppercase text-sm tracking-widest">Assign to Engineers</h3>
+                <button onclick="closeMultiEng()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="p-5">
+                <p class="text-[11px] text-slate-500 font-bold mb-3">Which engineers are on this job? Tick all that apply for this day.</p>
+                <div id="multiEngList" class="space-y-2 max-h-64 overflow-y-auto mb-4"></div>
+                <div class="flex gap-2">
+                    <button onclick="confirmMultiEng()" class="flex-1 bg-slate-900 text-white py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-black">Confirm</button>
+                    <button onclick="closeMultiEng()" class="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-slate-200">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBv5z24Lzv0AGP8o5YpTv0c3NXjiMI_wYM",
+            authDomain: "gbr-planner-live.firebaseapp.com",
+            projectId: "gbr-planner-live",
+            storageBucket: "gbr-planner-live.firebasestorage.app",
+            messagingSenderId: "637113722449",
+            appId: "1:637113722449:web:ede76d8588a89a0ccb7a70"
+        };
+        const fbApp = firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const cloudDocRef = db.collection('planner').doc('liveData');
+        const auth = firebase.auth();
+        const APP_PASSWORD = "Solar=123";
+        const UNLOCK_KEY = "whereabouts_unlocked";
+        const USER_NAME_KEY = "whereabouts_username";
+        let currentUser = "Unknown";
+        let suppressNextSnapshot = false;
+        let cloudSaveTimer = null;
+        let cloudReady = false;
+
+        // --- 1. LOCAL STORAGE STORAGE KEYS ---
+        const LOCAL_STORAGE_KEY = "whereabouts_planner_local_data";
+
+        // --- 2. DATA & BANK HOLIDAYS ---
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const bankHolidays = {
+            "2026-01-01": "New Year's Day", "2026-04-03": "Good Friday", "2026-04-06": "Easter Monday",
+            "2026-05-04": "Early May", "2026-05-25": "Spring Holiday", "2026-08-31": "Summer Holiday",
+            "2026-12-25": "Christmas Day", "2026-12-28": "Boxing Day",
+            "2027-01-01": "New Year's Day", "2027-03-26": "Good Friday", "2027-03-29": "Easter Monday"
+        };
+
+        const allMonths = [];
+        for (let y = 2026; y <= 2030; y++) {
+            for (let m = 0; m < 12; m++) {
+                if (y === 2026 && m < 2) continue;
+                allMonths.push(`${monthNames[m]} ${y}`);
+            }
+        }
+        
+        let emptySchedule = {};
+        allMonths.forEach(m => { emptySchedule[m] = { data: [], status: "active", backlog: [] }; });
+        let data = { months: allMonths, schedule: emptySchedule, leaveLog: {}, globalBacklog: [] };
+        
+        let activeMonth = "";
+        let searchFilter = "";
+        const DEFAULT_ENGINEERS = ["Graham", "Chris", "Harry", "Sam", "AFDC 1", "AFDC 2", "Simon", "7 Electrical", "Fadge"];
+        const JOB_TYPES = {
+            "Site Survey":               { bg: "#bae6fd", text: "#0c4a6e" },
+            "Panel Install":             { bg: "#bbf7d0", text: "#14532d" },
+            "Electrical Install":        { bg: "#c7d2fe", text: "#312e81" },
+            "Panel & Electrical Install":{ bg: "#99f6e4", text: "#134e4a" },
+            "Snags":                     { bg: "#fed7aa", text: "#7c2d12" },
+            "Commissioning":             { bg: "#ddd6fe", text: "#4c1d95" },
+            "Handover":                  { bg: "#fbcfe8", text: "#831843" },
+            "DNO Witness Testing":       { bg: "#fde68a", text: "#78350f" },
+            "Service":                   { bg: "#cbd5e1", text: "#1e293b" },
+            "Service Remedials":         { bg: "#fecaca", text: "#7f1d1d" }
+        };
+        
+        const engColors = {
+            "Graham": { name: "bg-blue-200 text-blue-900 border-blue-400", row: "bg-blue-50" },
+            "Chris": { name: "bg-emerald-200 text-emerald-900 border-emerald-400", row: "bg-emerald-50" },
+            "Harry": { name: "bg-purple-200 text-purple-900 border-purple-400", row: "bg-purple-50" },
+            "Sam": { name: "bg-amber-200 text-amber-900 border-amber-400", row: "bg-amber-50" },
+            "AFDC 1": { name: "bg-slate-300 text-slate-900 border-slate-400", row: "bg-slate-100" },
+            "AFDC 2": { name: "bg-slate-300 text-slate-900 border-slate-400", row: "bg-slate-100" },
+            "Rayjon": { name: "bg-indigo-200 text-indigo-900 border-indigo-400", row: "bg-indigo-50" }
+        };
+
+        function getEngColor(name) {
+            const key = Object.keys(engColors).find(k => name.toLowerCase().includes(k.toLowerCase()));
+            return key ? engColors[key] : { name: "bg-gray-200 text-gray-900 border-gray-400", row: "bg-gray-50" };
+        }
+
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
+
+        let mobileTab = 'diary';
+        function setMobileTab(tab) {
+            mobileTab = tab;
+            const diary = document.getElementById('mainDiaryArea');
+            const quick = document.getElementById('mobileQuickView');
+            const tabs = { diary: 'tabDiary', today: 'tabToday', week: 'tabWeek' };
+            Object.keys(tabs).forEach(t => {
+                const btn = document.getElementById(tabs[t]);
+                if (btn) btn.className = btn.className.replace(/bg-slate-900 text-white|bg-slate-100 text-slate-600/g, t === tab ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600');
+            });
+            if (tab === 'diary') {
+                diary.classList.remove('hidden');
+                quick.classList.add('hidden');
+            } else {
+                diary.classList.add('hidden');
+                quick.classList.remove('hidden');
+                tab === 'today' ? renderMobileToday() : renderMobileWeek();
+            }
+        }
+
+        function getTodayStr() {
+            const d = new Date();
+            return d.toISOString().slice(0,10);
+        }
+
+        function renderMobileToday() {
+            const todayStr = getTodayStr();
+            const container = document.getElementById('mobileQuickView');
+            const info = data.schedule[activeMonth];
+            if (!info) { container.innerHTML = `<p class="text-center text-slate-400 font-bold text-sm py-10">No data for ${activeMonth}</p>`; return; }
+
+            const dayName = new Date(todayStr).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+            let html = `<div class="bg-slate-900 text-white rounded-2xl p-4 mb-2">
+                <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Today</p>
+                <p class="text-xl font-black">${dayName}</p>
+            </div>`;
+
+            const bh = bankHolidays[todayStr];
+            if (bh) { container.innerHTML = html + `<div class="bg-red-50 border border-red-200 rounded-2xl p-6 text-center font-black text-red-600 uppercase text-sm">Bank Holiday 🎉</div>`; return; }
+
+            let anyJobs = false;
+            info.data.forEach(row => {
+                const dayKey = Object.keys(row.days).find(k => k.split('___')[1] === todayStr);
+                if (!dayKey) return;
+                const lv = (data.leaveLog[row.engineer] || {})[todayStr];
+                const cd = getCellData(row.days[dayKey]);
+                if (!lv && cd.jobs.length === 0 && !cd.note) return;
+                anyJobs = true;
+                const colors = getEngColor(row.engineer);
+                html += `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 ${colors.name} font-black text-sm">${escapeHtml(row.engineer)}</div>
+                    <div class="p-4 space-y-2">`;
+                if (lv) {
+                    html += `<div class="text-sm font-bold text-slate-500">${leaveLabel(lv)}</div>`;
+                } else {
+                    cd.jobs.forEach(j => {
+                        const jt = JOB_TYPES[j.jobType] || { bg:'#e2e8f0', text:'#1e293b' };
+                        const tip = jobTooltipText(Object.assign({ jobType: j.jobType }, j.site || {}));
+                        html += `<div style="background:${jt.bg};color:${jt.text}" class="rounded-xl px-3 py-2">
+                            <div class="font-black text-sm">${escapeHtml(j.text)}</div>
+                            ${j.jobType ? `<div class="text-[11px] font-bold opacity-80">${j.jobType}</div>` : ''}
+                            ${tip && tip !== 'No further details' ? `<div class="text-[10px] mt-1 opacity-70 whitespace-pre-line">${escapeHtml(tip)}</div>` : ''}
+                        </div>`;
+                    });
+                    if (cd.note) html += `<div class="text-xs text-slate-500 font-medium">${escapeHtml(cd.note)}</div>`;
+                }
+                html += `</div></div>`;
+            });
+            if (!anyJobs) html += `<div class="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center text-slate-400 font-bold text-sm">Nothing scheduled today</div>`;
+            container.innerHTML = html;
+        }
+
+        function renderMobileWeek() {
+            const container = document.getElementById('mobileQuickView');
+            const info = data.schedule[activeMonth];
+            if (!info) { container.innerHTML = `<p class="text-center text-slate-400 font-bold text-sm py-10">No data for ${activeMonth}</p>`; return; }
+
+            const todayStr = getTodayStr();
+            const todayDate = new Date(todayStr);
+            // Find Mon–Fri of current week
+            const monday = new Date(todayDate);
+            monday.setDate(todayDate.getDate() - ((todayDate.getDay() + 6) % 7));
+            const weekDates = Array.from({length:5}, (_, i) => {
+                const d = new Date(monday); d.setDate(monday.getDate() + i);
+                return d.toISOString().slice(0,10);
+            });
+
+            let html = `<div class="bg-slate-900 text-white rounded-2xl p-4 mb-2">
+                <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">This Week</p>
+                <p class="text-lg font-black">${monday.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${new Date(weekDates[4]).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</p>
+            </div>`;
+
+            weekDates.forEach(dStr => {
+                const bh = bankHolidays[dStr];
+                const isToday = dStr === todayStr;
+                const dayLabel = new Date(dStr).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short' });
+                html += `<div class="rounded-2xl overflow-hidden border ${isToday ? 'border-blue-400 shadow-md' : 'border-slate-200'}">
+                    <div class="${isToday ? 'bg-blue-600' : bh ? 'bg-red-100' : 'bg-slate-100'} px-4 py-2 flex justify-between items-center">
+                        <span class="font-black text-sm ${isToday ? 'text-white' : bh ? 'text-red-600' : 'text-slate-700'}">${dayLabel}</span>
+                        ${bh ? `<span class="text-[10px] font-black uppercase text-red-500">Bank Holiday</span>` : isToday ? `<span class="text-[10px] font-black uppercase text-blue-200">Today</span>` : ''}
+                    </div>
+                    <div class="bg-white divide-y divide-slate-100">`;
+
+                let hasContent = false;
+                info.data.forEach(row => {
+                    const dayKey = Object.keys(row.days).find(k => k.split('___')[1] === dStr);
+                    if (!dayKey) return;
+                    const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                    const cd = getCellData(row.days[dayKey]);
+                    if (!lv && cd.jobs.length === 0 && !cd.note) return;
+                    hasContent = true;
+                    const colors = getEngColor(row.engineer);
+                    html += `<div class="px-3 py-2 flex gap-2 items-start flex-wrap">
+                        <span class="${colors.name} px-2 py-0.5 rounded text-[10px] font-black whitespace-nowrap">${escapeHtml(row.engineer)}</span>
+                        <div class="flex-1 flex gap-1 flex-wrap">`;
+                    if (lv) {
+                        html += `<span class="text-[11px] font-bold text-slate-500">${leaveLabel(lv)}</span>`;
+                    } else {
+                        cd.jobs.forEach(j => {
+                            const jt = JOB_TYPES[j.jobType] || { bg:'#e2e8f0', text:'#1e293b' };
+                            html += `<span style="background:${jt.bg};color:${jt.text}" class="rounded px-2 py-0.5 text-[10px] font-bold">${escapeHtml(j.text)}</span>`;
+                        });
+                        if (cd.note) html += `<span class="text-[10px] text-slate-500">${escapeHtml(cd.note)}</span>`;
+                    }
+                    html += `</div></div>`;
+                });
+                if (!hasContent && !bh) html += `<div class="px-4 py-3 text-[11px] text-slate-300 font-bold">Nothing scheduled</div>`;
+                html += `</div></div>`;
+            });
+            container.innerHTML = html;
+        }
+
+
+
+        function escapeHtml(s) {
+            return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        // ---- PRINT FUNCTIONS ----
+        function buildPrintHtml(weeksToInclude) {
+            const info = data.schedule[activeMonth];
+            let body = `<h1 style="font-family:sans-serif;font-size:14px;font-weight:900;text-transform:uppercase;margin:0 0 4px 0;letter-spacing:2px;">GreenBridge Renewables — Whereabouts</h1>
+                <p style="font-family:sans-serif;font-size:10px;color:#475569;margin:0 0 14px 0;">${activeMonth} &nbsp;|&nbsp; Printed ${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>`;
+
+            const jtMap = Object.fromEntries(Object.entries(JOB_TYPES).map(([k,v]) => [k, v.bg]));
+
+            weeksToInclude.forEach(wName => {
+                const rows = info.data.filter(r => r.week === wName);
+                if (!rows.length) return;
+                const rawDays = Object.keys(rows[0].days);
+                const workDays = rawDays.filter(dk => !dk.split('___')[0].includes('--'));
+
+                let table = `<h2 style="font-family:sans-serif;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin:12px 0 4px 0;color:#1e293b;">${wName}</h2>
+                    <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:sans-serif;font-size:9px;">
+                    <thead><tr><th style="background:#1e293b;color:white;padding:5px 6px;text-align:left;width:80px;border:1px solid #94a3b8;">Engineer</th>`;
+
+                workDays.forEach(dk => {
+                    const [disp, dStr] = dk.split('___');
+                    const bh = bankHolidays[dStr];
+                    const bg = bh ? '#e2e8f0' : '#1e293b';
+                    table += `<th style="background:${bg};color:${bh?'#64748b':'white'};padding:5px 4px;text-align:center;border:1px solid #94a3b8;font-size:8px;">${disp}${bh?'<br><span style="font-size:7px;color:#ef4444;">BH</span>':''}</th>`;
+                });
+                table += `</tr></thead><tbody>`;
+
+                rows.forEach((row, rIdx) => {
+                    const bg = rIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                    table += `<tr style="background:${bg};">
+                        <td style="padding:5px 6px;font-weight:900;border:1px solid #cbd5e1;vertical-align:top;font-size:9px;">${row.engineer}</td>`;
+                    workDays.forEach(dk => {
+                        const [, dStr] = dk.split('___');
+                        const bh = bankHolidays[dStr];
+                        const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                        let cellHtml = '';
+                        if (bh) {
+                            table += `<td style="background:#e2e8f0;border:1px solid #cbd5e1;"></td>`;
+                            return;
+                        }
+                        if (lv) {
+                            const lColours = {AL:'#bbf7d0',SICK:'#fecaca',UNPAID:'#e2e8f0',OTHER:'#ddd6fe'};
+                            table += `<td style="background:${lColours[lv]||'#e2e8f0'};border:1px solid #cbd5e1;padding:4px;text-align:center;font-weight:900;font-size:8px;color:#475569;">${lv}</td>`;
+                            return;
+                        }
+                        const cd = getCellData(row.days[dk]);
+                        cd.jobs.forEach(j => {
+                            const jbg = jtMap[j.jobType] || '#e2e8f0';
+                            const statusSuffix = j.status && j.status !== 'Planned' ? ` <span style="font-size:7px;opacity:0.7;">[${j.status}]</span>` : '';
+                            cellHtml += `<div style="background:${jbg};border-radius:3px;padding:2px 4px;margin-bottom:2px;font-weight:800;">${j.text}${statusSuffix}</div>`;
+                        });
+                        if (cd.note) cellHtml += `<div style="font-size:8px;color:#64748b;margin-top:2px;">${cd.note}</div>`;
+                        table += `<td style="padding:4px;border:1px solid #cbd5e1;vertical-align:top;">${cellHtml}</td>`;
+                    });
+                    table += `</tr>`;
+                });
+                table += `</tbody></table>`;
+                body += table;
+            });
+
+            // Colour key
+            body += `<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;font-family:sans-serif;">`;
+            Object.entries(JOB_TYPES).forEach(([name, {bg}]) => {
+                body += `<span style="background:${bg};padding:2px 8px;border-radius:4px;font-size:8px;font-weight:800;">${name}</span>`;
+            });
+            body += `</div>`;
+
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>GreenBridge Whereabouts — ${activeMonth}</title>
+                <style>
+                    @page { size: A3 landscape; margin: 10mm; }
+                    body { margin: 0; }
+                    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+                </style>
+                </head><body>${body}</body></html>`;
+        }
+
+        function printMonth() {
+            const info = data.schedule[activeMonth];
+            const weeks = [...new Set(info.data.map(r => r.week))];
+            const win = window.open('', '_blank');
+            win.document.write(buildPrintHtml(weeks));
+            win.document.close();
+            win.focus();
+            setTimeout(() => { win.print(); }, 600);
+        }
+
+        function printWeek() {
+            const info = data.schedule[activeMonth];
+            const weeks = [...new Set(info.data.map(r => r.week))];
+            const sel = document.getElementById('printWeekSelect');
+            sel.innerHTML = weeks.map(w => `<option value="${w}">${w}</option>`).join('');
+            const modal = document.getElementById('printWeekModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+
+        function closePrintWeekModal() {
+            document.getElementById('printWeekModal').classList.add('hidden');
+            document.getElementById('printWeekModal').classList.remove('flex');
+        }
+
+        function doPrintWeek() {
+            const wName = document.getElementById('printWeekSelect').value;
+            closePrintWeekModal();
+            const win = window.open('', '_blank');
+            win.document.write(buildPrintHtml([wName]));
+            win.document.close();
+            win.focus();
+            setTimeout(() => { win.print(); }, 600);
+        }
+
+        function exportData() {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const stamp = new Date().toISOString().slice(0,10);
+            a.href = url; a.download = `whereabouts-planner-backup-${stamp}.json`;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (!parsed.months || !parsed.schedule) { alert("That file doesn't look like a valid planner backup."); return; }
+                    if (!confirm("This will replace the current schedule (all months) with the contents of the imported file. Continue?")) return;
+                    data = Object.assign({ months: allMonths, schedule: emptySchedule, leaveLog: {}, globalBacklog: [] }, parsed);
+                    if (!data.leaveLog) data.leaveLog = {}; if (!data.globalBacklog) data.globalBacklog = []; migratePerMonthBacklogs();
+                    autoSave();
+                    renderSidebar();
+                    loadMonth();
+                    alert("Import complete.");
+                } catch(err) {
+                    alert("Could not read that file: " + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function formatDateString(d, targetMonthIdx) {
+            if (d.getMonth() !== targetMonthIdx) return `${dayNames[d.getDay()]} --`;
+            const dd = d.getDate().toString().padStart(2, '0');
+            const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+            const yyyy = d.getFullYear();
+            return `${dayNames[d.getDay()]} ${dd} ${monthNames[d.getMonth()]}___${yyyy}-${mm}-${dd}`;
+        }
+
+        // --- 3. LOCAL STORAGE ARCHITECTURE ENGINE ---
+        function init() {
+            const now = new Date();
+            const currYear = now.getFullYear();
+            const currMonth = now.getMonth();
+            let foundCurrent = false;
+
+            // Setup default statuses setup 
+            data.months.forEach(m => {
+                const parts = m.split(' ');
+                const mIdx = monthNames.indexOf(parts[0]);
+                const y = parseInt(parts[1]);
+                if (y < currYear || (y === currYear && mIdx < currMonth)) {
+                    data.schedule[m].status = 'archived';
+                } else {
+                    data.schedule[m].status = 'active';
+                    if (!foundCurrent) { activeMonth = m; foundCurrent = true; }
+                }
+            });
+            if (!activeMonth && data.months.length > 0) activeMonth = data.months[0];
+
+            // Local storage backup loading trigger (used as instant cache while cloud loads)
+            const cachedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (cachedData) {
+                try {
+                    const parsed = JSON.parse(cachedData);
+                    Object.assign(data, parsed);
+                    if (!data.leaveLog) data.leaveLog = {}; if (!data.globalBacklog) data.globalBacklog = []; migratePerMonthBacklogs();
+                } catch(e) {
+                    console.error("Cache corrupted, using standard structure.", e);
+                }
+            }
+
+            renderSidebar();
+            if (activeMonth) loadMonth();
+        }
+
+        function connectCloud() {
+            setCloudStatus('connecting', 'Connecting...');
+            cloudDocRef.get().then(doc => {
+                if (doc.exists) {
+                    const remote = doc.data();
+                    if (remote && remote.payload) {
+                        Object.assign(data, JSON.parse(remote.payload));
+                        if (!data.leaveLog) data.leaveLog = {}; if (!data.globalBacklog) data.globalBacklog = []; migratePerMonthBacklogs();
+                        renderSidebar();
+                        loadMonth();
+                    }
+                } else {
+                    // Seed the cloud doc with whatever we have locally
+                    cloudDocRef.set({ payload: JSON.stringify(data), updatedAt: Date.now() });
+                }
+                cloudReady = true;
+                setCloudStatus('live', 'Live Cloud Sync Active');
+                attachCloudListener();
+            }).catch(err => {
+                console.error("Cloud connect failed", err);
+                setCloudStatus('offline', 'Offline (Local Storage Only)');
+            });
+        }
+
+        function setCloudStatus(state, text) {
+            const dot = document.getElementById('cloudDot');
+            const label = document.getElementById('cloudStatusText');
+            const colors = { connecting: 'bg-amber-500 animate-pulse', live: 'bg-emerald-500', offline: 'bg-red-500' };
+            const textColors = { connecting: 'text-amber-500', live: 'text-emerald-600', offline: 'text-red-500' };
+            dot.className = `w-2 h-2 rounded-full ${colors[state] || colors.connecting}`;
+            label.innerText = text;
+            document.getElementById('cloudStatus').className = `text-[10px] font-bold uppercase mt-1 flex items-center gap-1 ${textColors[state] || textColors.connecting}`;
+        }
+
+        function attachCloudListener() {
+            cloudDocRef.onSnapshot(doc => {
+                if (suppressNextSnapshot) { suppressNextSnapshot = false; return; }
+                if (!doc.exists) return;
+                const remote = doc.data();
+                if (!remote || !remote.payload) return;
+                try {
+                    const parsed = JSON.parse(remote.payload);
+                    data = Object.assign({ months: allMonths, schedule: emptySchedule, leaveLog: {}, globalBacklog: [] }, parsed);
+                    if (!data.leaveLog) data.leaveLog = {}; if (!data.globalBacklog) data.globalBacklog = []; migratePerMonthBacklogs();
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+                    renderSidebar();
+                    loadMonth();
+                } catch(e) { console.error("Bad remote payload", e); }
+            }, err => console.error("Snapshot listener error", err));
+        }
+
+        function autoSave() {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+            clearTimeout(cloudSaveTimer);
+            cloudSaveTimer = setTimeout(() => {
+                suppressNextSnapshot = true;
+                cloudDocRef.set({ payload: JSON.stringify(data), updatedAt: Date.now() }).catch(err => {
+                    console.error("Cloud save failed", err);
+                    setCloudStatus('offline', 'Offline (Local Storage Only)');
+                });
+            }, 600);
+        }
+
+        function rowMatchesSearch(r, term) {
+            if (!term) return true;
+            term = term.toLowerCase();
+            if (r.engineer.toLowerCase().includes(term)) return true;
+            return Object.values(r.days).some(v => {
+                const cd = getCellData(v);
+                if (cd.note && cd.note.toLowerCase().includes(term)) return true;
+                return cd.jobs.some(j => {
+                    const s = j.site || {};
+                    const hay = [j.text, j.jobType, s.location, s.postcode, s.notes, s.systemType, s.mountingSystem].filter(Boolean).join(' ').toLowerCase();
+                    return hay.includes(term);
+                });
+            });
+        }
+
+        function migratePerMonthBacklogs() {
+            // One-time migration: pull any jobs from old per-month backlogs into globalBacklog
+            let migrated = 0;
+            Object.values(data.schedule || {}).forEach(month => {
+                if (Array.isArray(month.backlog) && month.backlog.length) {
+                    month.backlog.forEach(j => {
+                        const job = typeof j === 'string' ? { id: 'mig_' + Date.now() + '_' + Math.random().toString(36).slice(2,5), name: j } : j;
+                        if (!data.globalBacklog.find(g => g.id && g.id === job.id)) {
+                            data.globalBacklog.push(job);
+                            migrated++;
+                        }
+                    });
+                    month.backlog = [];
+                }
+            });
+        }
+
+        function logActivity(action) {
+            if (!data.activityLog) data.activityLog = [];
+            data.activityLog.push({ ts: Date.now(), user: currentUser, action });
+            if (data.activityLog.length > 300) data.activityLog = data.activityLog.slice(-300);
+        }
+
+        function handleSearch(val) {
+            searchFilter = val;
+            loadMonth();
+        }
+
+        function renderSidebar() {
+            const act = document.getElementById('activeList'); const arc = document.getElementById('archiveList');
+            act.innerHTML = ""; arc.innerHTML = "";
+            data.months.forEach(m => {
+                const btn = document.createElement('button');
+                btn.className = `w-full text-left px-5 py-3 text-[11px] font-black uppercase tracking-widest rounded-xl transition-all ${activeMonth === m ? 'sidebar-active shadow-sm' : 'hover:bg-slate-50 text-slate-500'}`;
+                btn.innerText = m; 
+                btn.onclick = () => { activeMonth = m; if(window.innerWidth < 768) toggleSidebar(); renderSidebar(); loadMonth(); };
+                (data.schedule[m].status === 'active' ? act : arc).appendChild(btn);
+            });
+        }
+
+        function loadMonth() {
+            const container = document.getElementById('scheduleContainer'); 
+            const info = data.schedule[activeMonth];
+            document.getElementById('currentViewMonth').innerText = activeMonth;
+            
+            const statusTag = document.getElementById('viewStatus');
+            statusTag.innerText = info.status;
+            statusTag.className = `mt-2 inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${info.status === 'active' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`;
+            
+            container.innerHTML = ""; renderJobs();
+
+            if (info.data.length === 0) {
+                container.innerHTML = `<div class="p-20 text-center border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center gap-4 bg-white"><p class="uppercase tracking-widest font-bold text-slate-400 text-xs">No entries for ${activeMonth}</p><button onclick="initializeMonth()" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 font-bold uppercase text-[10px] tracking-widest shadow-lg">+ Generate Entire Month</button></div>`;
+                return;
+            }
+
+            const weeks = {};
+            info.data.forEach(r => { if(!weeks[r.week]) weeks[r.week] = []; weeks[r.week].push(r); });
+
+            for (const [wName, rows] of Object.entries(weeks)) {
+                const filtered = rows.filter(r => rowMatchesSearch(r, searchFilter));
+                if(filtered.length === 0) continue;
+                
+                const card = document.createElement('div'); card.className = "week-card border border-slate-300 bg-white w-full week-table-container"; 
+                card.id = `week-${wName.replace(/[^a-z0-9]/gi, '_')}`;
+                const rawDays = Object.keys(filtered[0].days);
+                
+                // --- BUILD DESKTOP TABLE (Hidden on Mobile) ---
+                let h = `<div class="bg-slate-900 px-6 py-4 flex justify-between items-center text-white no-print rounded-t-xl">
+                    <h4 class="font-black text-[12px] uppercase tracking-widest">${wName}</h4>
+                    <button onclick="addEngineerToWeek('${wName}')" class="bg-slate-700 text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase hover:bg-slate-600 desktop-only">+ Eng</button>
+                </div>
+                <table class="w-full text-left text-xs border-collapse table-fixed desktop-only">
+                    <thead><tr class="bg-slate-100 text-slate-600 font-black uppercase tracking-tighter border-b border-slate-300">
+                    <th class="px-3 py-3 w-[12%] border-r border-slate-300">Engineer</th>`;
+                
+                rawDays.forEach(d => {
+                    const [disp, dStr] = d.split('___');
+                    const bh = bankHolidays[dStr];
+                    let cls = `px-3 py-3 border-r border-slate-300 w-[17.6%] ${disp.includes('--') ? 'bg-slate-50 text-slate-300' : (bh ? 'bg-red-50 text-red-600 border-t-4 border-t-red-500' : '')}`;
+                    h += `<th class="${cls}">${disp.includes('--') ? disp.split(' ')[0] : disp}${bh ? '<br><span class="text-[8px] text-red-500 font-bold uppercase">'+bh+'</span>' : ''}</th>`;
+                });
+                h += `</tr></thead><tbody>`;
+                filtered.forEach(row => {
+                    const mainIdx = info.data.indexOf(row);
+                    const colors = getEngColor(row.engineer);
+                    h += `<tr><td class="${colors.name} px-2 py-3 font-black border-r border-b border-slate-300 border-l-4">
+                            <div class="flex justify-between items-center group">
+                                <span contenteditable="true" onblur="editName(${mainIdx}, this.innerText)">${escapeHtml(row.engineer)}</span>
+                                <button onclick="delEng(${mainIdx})" class="no-print text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 px-1 transition-opacity">×</button>
+                            </div>
+                        </td>`;
+                    rawDays.forEach((dayKey, dIdx) => {
+                        const [disp, dStr] = dayKey.split('___');
+                        if (disp.includes('--')) h += `<td class="bg-slate-50/30 border-r border-b border-slate-300"></td>`;
+                        else if (bankHolidays[dStr]) h += `<td class="bank-holiday-col border-r border-b border-slate-300 text-center"><div class="min-h-[3.5em] flex items-center justify-center text-red-200 font-black opacity-40 text-xs">BH</div></td>`;
+                        else {
+                            const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                            const leaveCls = lv ? `leave-${lv}` : colors.row;
+                            const cellVal = row.days[dayKey];
+                            const cd = getCellData(cellVal);
+                            const cellInner = lv ? `<div class="leave-badge">${leaveLabel(lv)}</div>` : `${renderJobChips(mainIdx, dayKey, cd)}<div contenteditable="true" class="editable-cell text-[11px]" onblur="editSched(${mainIdx}, '${dayKey}', this.innerText)">${escapeHtml(cd.note)}</div>`;
+                            h += `<td class="${leaveCls} border-r border-b border-slate-300 align-top relative group/cell" ondragover="event.preventDefault(); this.classList.add('cell-dragover')" ondragleave="this.classList.remove('cell-dragover')" ondrop="dropJob(event, ${mainIdx}, '${dayKey}', this)">
+                                    <button onclick="openLeaveMenu(event, ${mainIdx}, '${dayKey}', '${escapeHtml(row.engineer).replace(/'/g,"\\'")}')" class="leave-btn no-print" title="Leave / Holiday">L</button>
+                                    ${cellInner}
+                                    <button onclick="copyRight(${mainIdx}, '${dayKey}')" class="no-print absolute bottom-1 right-1 text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[10px] opacity-0 group-hover/cell:opacity-100 shadow-sm hover:text-slate-900 hover:border-slate-400" title="Copy to remaining days">&rarr;</button>
+                                  </td>`;
+                        }
+                    });
+                    h += `</tr>`;
+                });
+                h += `</tbody></table>`;
+
+                // --- BUILD MOBILE DAY-BY-DAY LIST (Visible only on Mobile) ---
+                let mobileH = `<div class="mobile-only-content md:hidden">`;
+                rawDays.forEach(dayKey => {
+                    const [disp, dStr] = dayKey.split('___');
+                    if (disp.includes('--')) return; // Skip days outside month
+                    
+                    const bh = bankHolidays[dStr];
+                    mobileH += `<div class="mobile-day-strip flex justify-between items-center ${bh ? 'bg-red-900' : ''}">
+                        <span>${disp}</span>
+                        ${bh ? `<span class="text-[9px] bg-red-600 px-2 py-0.5 rounded">${bh}</span>` : ''}
+                    </div>`;
+
+                    filtered.forEach(row => {
+                        const mainIdx = info.data.indexOf(row);
+                        const colors = getEngColor(row.engineer);
+                        const cellVal = row.days[dayKey];
+                        const cd = getCellData(cellVal);
+                        const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                        const leaveCls = lv ? `leave-${lv}` : colors.row;
+                        const cellInner = lv ? `<div class="leave-badge">${leaveLabel(lv)}</div>` : `${renderJobChips(mainIdx, dayKey, cd)}<div contenteditable="true" class="editable-cell text-[12px] min-h-[2.5em] font-medium" onblur="editSched(${mainIdx}, '${dayKey}', this.innerText)">${escapeHtml(cd.note)}</div>`;
+                        
+                        mobileH += `<div class="mobile-engineer-row ${bh ? 'opacity-40 grayscale pointer-events-none' : ''}">
+                            <div class="mobile-eng-name ${colors.name}">${escapeHtml(row.engineer)}</div>
+                            <div class="mobile-task-area ${leaveCls} relative" ondragover="event.preventDefault()" ondrop="dropJob(event, ${mainIdx}, '${dayKey}', this)">
+                                <button onclick="openLeaveMenu(event, ${mainIdx}, '${dayKey}', '${escapeHtml(row.engineer).replace(/'/g,"\\'")}')" class="leave-btn no-print" style="opacity:1" title="Leave / Holiday">L</button>
+                                ${cellInner}
+                            </div>
+                        </div>`;
+                    });
+                });
+                mobileH += `</div>`;
+
+                card.innerHTML = h + mobileH;
+                container.appendChild(card);
+            }
+        }
+
+        // --- CORE LOGIC IMPLEMENTATIONS ---
+        function initializeMonth() {
+            const info = data.schedule[activeMonth]; const parts = activeMonth.split(' ');
+            const mIdx = monthNames.indexOf(parts[0]); const y = parseInt(parts[1]);
+            let d1 = new Date(y, mIdx, 1); let diff = d1.getDay() === 0 ? -6 : 1 - d1.getDay();
+            let curM = new Date(y, mIdx, 1 + diff); let wNum = 1;
+            while (true) {
+                let mon = new Date(curM); let fri = new Date(curM); fri.setDate(mon.getDate()+4);
+                if (![mon, fri].some(d => new Date(d).getMonth() === mIdx) && wNum > 1) break;
+                let wTitle = `Week ${wNum}: ${mon.getDate()} ${monthNames[mon.getMonth()]} - ${fri.getDate()} ${monthNames[fri.getMonth()]}`;
+                let daysObj = {};
+                [mon, new Date(curM).setDate(mon.getDate()+1), new Date(curM).setDate(mon.getDate()+2), new Date(curM).setDate(mon.getDate()+3), fri].forEach(d => {
+                    daysObj[formatDateString(new Date(d), mIdx)] = "";
+                });
+                DEFAULT_ENGINEERS.forEach(n => { info.data.push({ week: wTitle, engineer: n, days: JSON.parse(JSON.stringify(daysObj)) }); });
+                curM.setDate(curM.getDate() + 7); wNum++;
+                if(wNum > 6) break;
+            }
+            autoSave();
+            loadMonth();
+        }
+
+        function resetMonth() { if (confirm("Completely wipe this month?")) { data.schedule[activeMonth].data = []; logActivity(`Wiped all entries for ${activeMonth}`); autoSave(); loadMonth(); } }
+        function editName(idx, v) { data.schedule[activeMonth].data[idx].engineer = v; autoSave(); }
+        function editSched(idx, d, v) {
+            const row = data.schedule[activeMonth].data[idx];
+            const cd = getCellData(row.days[d]);
+            cd.note = v;
+            row.days[d] = (cd.jobs.length || cd.note) ? cd : "";
+            autoSave();
+        }
+        function delEng(idx) { if(confirm("Remove?")) { const n = data.schedule[activeMonth].data[idx].engineer; data.schedule[activeMonth].data.splice(idx, 1); logActivity(`Removed engineer row "${n}" from ${activeMonth}`); autoSave(); loadMonth(); } }
+        function toggleJobForm() {
+            document.getElementById('jobForm').classList.toggle('hidden');
+        }
+
+        function addJob() {
+            const name = document.getElementById('jobName').value.trim();
+            if (!name) { alert("Site name is required."); return; }
+            const job = {
+                id: 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+                name,
+                location: document.getElementById('jobLocation').value.trim(),
+                postcode: document.getElementById('jobPostcode').value.trim(),
+                systemSize: document.getElementById('jobSystemSize').value.trim(),
+                systemType: document.getElementById('jobSystemType').value,
+                mountingSystem: document.getElementById('jobMountingSystem').value,
+                jobType: document.getElementById('jobJobType').value,
+                notes: document.getElementById('jobNotes').value.trim()
+            };
+            if (!data.globalBacklog) data.globalBacklog = [];
+            data.globalBacklog.push(job);
+            ['jobName','jobLocation','jobPostcode','jobSystemSize','jobNotes'].forEach(id => document.getElementById(id).value = "");
+            document.getElementById('jobSystemType').value = "";
+            document.getElementById('jobMountingSystem').value = "";
+            document.getElementById('jobJobType').value = "";
+            autoSave();
+            renderJobs();
+        }
+        function delJob(i) { data.globalBacklog.splice(i, 1); autoSave(); renderJobs(); }
+        function copyJob(t) { navigator.clipboard.writeText(t); }
+
+        function jobTooltipText(job) {
+            const lines = [];
+            if (job.jobType) lines.push('Job: ' + job.jobType);
+            if (job.location) lines.push('Location: ' + job.location);
+            if (job.postcode) lines.push('Postcode: ' + job.postcode);
+            if (job.systemSize) lines.push('Size: ' + job.systemSize + ' kWp');
+            if (job.systemType) lines.push('Sys Type: ' + job.systemType);
+            if (job.mountingSystem || job.roofType) lines.push('Mounting: ' + (job.mountingSystem || job.roofType));
+            if (job.notes) lines.push('Notes: ' + job.notes);
+            return lines.join('\n') || 'No further details';
+        }
+
+        function renderJobs() {
+            const l = document.getElementById('jobList'); l.innerHTML = "";
+            (data.globalBacklog || []).forEach((j, i) => {
+                const job = (typeof j === 'string') ? { name: j } : j; // backward compat with old plain-string entries
+                const d = document.createElement('div');
+                d.className = "job-pill p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold shadow-sm flex justify-between items-start cursor-pointer hover:bg-amber-50 relative";
+                d.setAttribute('draggable', 'true');
+                d.ondragstart = (e) => {
+                    e.dataTransfer.setData('application/json', JSON.stringify(job));
+                    e.dataTransfer.setData('text/plain', job.name);
+                    e.dataTransfer.effectAllowed = 'copy';
+                };
+                const jt = JOB_TYPES[job.jobType];
+                const meta = [job.jobType, job.location, job.postcode, job.systemSize ? job.systemSize + ' kWp' : '', job.systemType, job.mountingSystem || job.roofType].filter(Boolean).join(' \u2022 ');
+                if (jt) { d.style.borderLeft = `4px solid ${jt.bg}`; d.style.boxShadow = `inset 3px 0 0 ${jt.bg}`; }
+                d.innerHTML = `<span onclick="copyJob('${job.name.replace(/'/g, "\\'")}')" class="flex-1" title="Click to copy, or drag onto a diary cell">
+                        ${escapeHtml(job.name)}
+                        ${meta ? `<div class="job-pill-meta">${escapeHtml(meta)}</div>` : ''}
+                    </span>
+                    <span onclick="delJob(${i})" class="text-slate-300 hover:text-red-500 font-bold text-sm px-1">×</span>`;
+                if (meta || job.notes) { d.title = jobTooltipText(job); }
+                l.appendChild(d);
+            });
+        }
+
+        // Cell data model: { jobs: [{text, jobType, site}], note: "free text" }
+        // Backward compatible with legacy plain strings and the old single {text, site} format.
+        function getCellData(v) {
+            if (!v) return { jobs: [], note: "" };
+            if (typeof v === 'string') return { jobs: [], note: v };
+            if (Array.isArray(v.jobs)) return { jobs: v.jobs, note: v.note || "" };
+            if (typeof v.text !== 'undefined') return { jobs: [{ text: v.text, jobType: (v.site && v.site.jobType) || null, site: v.site || null }], note: "" };
+            return { jobs: [], note: "" };
+        }
+        function cellText(v) { return getCellData(v).note; } // legacy helper name kept for note display
+        function cellSiteMeta(v) { return null; } // superseded by per-job tooltips now
+
+        let pendingMultiEng = null;
+
+        function dropJob(e, mainIdx, dayKey, cellEl) {
+            e.preventDefault();
+            if (cellEl) cellEl.classList.remove('cell-dragover');
+            const raw = e.dataTransfer.getData('application/json');
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const dispDay = dayKey.split('___')[0];
+            if (raw) {
+                try {
+                    const job = JSON.parse(raw);
+                    const site = { location: job.location, postcode: job.postcode, systemSize: job.systemSize, systemType: job.systemType, mountingSystem: job.mountingSystem || job.roofType, jobType: job.jobType, notes: job.notes };
+                    const chipEntry = { text: job.name, jobType: job.jobType || null, status: 'Planned', site };
+                    cd.jobs.push(chipEntry);
+                    row.days[dayKey] = cd;
+                    if (job.id && data.globalBacklog) {
+                        const bIdx = data.globalBacklog.findIndex(b => b && b.id === job.id);
+                        if (bIdx > -1) data.globalBacklog.splice(bIdx, 1);
+                    }
+                    logActivity(`Allocated "${job.name}" to ${row.engineer} on ${dispDay} (${activeMonth})`);
+                    autoSave(); loadMonth(); renderJobs();
+                    openMultiEng(JSON.parse(JSON.stringify(chipEntry)), dayKey, mainIdx);
+                    return;
+                } catch(err) { /* fall through to plain text */ }
+            }
+            const text = e.dataTransfer.getData('text/plain');
+            if (!text) return;
+            cd.jobs.push({ text, jobType: null, status: 'Planned', site: null });
+            row.days[dayKey] = cd;
+            autoSave();
+            loadMonth();
+        }
+
+        function openMultiEng(chipEntry, dayKey, primaryMainIdx) {
+            const info = data.schedule[activeMonth];
+            const dStr = dayKey.split('___')[1];
+            const primaryRow = info.data[primaryMainIdx];
+            const weekRows = info.data.filter((r, i) => r.week === primaryRow.week && i !== primaryMainIdx);
+            if (weekRows.length === 0) return;
+            pendingMultiEng = { chipEntry, dayKey, weekRows };
+            const list = document.getElementById('multiEngList');
+            list.innerHTML = weekRows.map((r, i) => {
+                const colors = getEngColor(r.engineer);
+                const lv = (data.leaveLog[r.engineer] || {})[dStr];
+                const disabled = !!lv;
+                return `<label class="flex items-center gap-3 p-2 rounded-lg ${disabled ? 'opacity-40' : 'hover:bg-slate-50 cursor-pointer'}">
+                    <input type="checkbox" value="${i}" ${disabled ? 'disabled' : ''} class="w-4 h-4 rounded accent-slate-900">
+                    <span class="${colors.name} px-2 py-0.5 rounded text-[11px] font-black">${escapeHtml(r.engineer)}</span>
+                    ${lv ? `<span class="text-[10px] text-red-500 font-bold">(${leaveLabel(lv)})</span>` : ''}
+                </label>`;
+            }).join('');
+            const modal = document.getElementById('multiEngModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+
+        function confirmMultiEng() {
+            if (!pendingMultiEng) { closeMultiEng(); return; }
+            const { chipEntry, dayKey, weekRows } = pendingMultiEng;
+            const checked = [...document.getElementById('multiEngList').querySelectorAll('input:checked')];
+            checked.forEach(input => {
+                const row = weekRows[parseInt(input.value)];
+                if (!row) return;
+                const cd = getCellData(row.days[dayKey]);
+                cd.jobs.push(JSON.parse(JSON.stringify(chipEntry)));
+                row.days[dayKey] = cd;
+                logActivity(`Also assigned "${chipEntry.text}" to ${row.engineer} on ${dayKey.split('___')[0]} (${activeMonth})`);
+            });
+            if (checked.length > 0) { autoSave(); loadMonth(); }
+            closeMultiEng();
+        }
+
+        function closeMultiEng() {
+            pendingMultiEng = null;
+            const modal = document.getElementById('multiEngModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+
+
+
+        function dragChipStart(e, mainIdx, dayKey, jobIdx) {
+            e.stopPropagation();
+            e.dataTransfer.setData('application/x-diary-job', JSON.stringify({ mainIdx, dayKey, jobIdx }));
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function returnJobToPending(e) {
+            e.preventDefault();
+            document.getElementById('jobList').classList.remove('joblist-dragover');
+            const raw = e.dataTransfer.getData('application/x-diary-job');
+            if (!raw) return;
+            let ref;
+            try { ref = JSON.parse(raw); } catch(err) { return; }
+            const row = data.schedule[activeMonth].data[ref.mainIdx];
+            if (!row) return;
+            const cd = getCellData(row.days[ref.dayKey]);
+            const j = cd.jobs[ref.jobIdx];
+            if (!j) return;
+            const site = j.site || {};
+            const job = {
+                id: 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+                name: j.text,
+                location: site.location || '',
+                postcode: site.postcode || '',
+                systemSize: site.systemSize || '',
+                systemType: site.systemType || '',
+                mountingSystem: site.mountingSystem || '',
+                jobType: site.jobType || j.jobType || '',
+                notes: site.notes || ''
+            };
+            if (!data.globalBacklog) data.globalBacklog = [];
+            data.globalBacklog.push(job);
+            cd.jobs.splice(ref.jobIdx, 1);
+            row.days[ref.dayKey] = (cd.jobs.length || cd.note) ? cd : "";
+            logActivity(`Un-allocated "${j.text}" from ${row.engineer} (${activeMonth}) back to Pending Sites`);
+            autoSave();
+            loadMonth();
+            renderJobs();
+        }
+
+        function removeJobEntry(mainIdx, dayKey, jobIdx) {
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const j = cd.jobs[jobIdx];
+            cd.jobs.splice(jobIdx, 1);
+            row.days[dayKey] = (cd.jobs.length || cd.note) ? cd : "";
+            if (j) logActivity(`Deleted job "${j.text}" from ${row.engineer} (${activeMonth})`);
+            autoSave();
+            loadMonth();
+        }
+
+        const JOB_STATUSES = ['Planned', 'In Progress', 'Complete', 'Snagged'];
+        function openJobStatusMenu(e, mainIdx, dayKey, jobIdx) {
+            e.stopPropagation();
+            closeLeaveMenu();
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const current = (cd.jobs[jobIdx] && cd.jobs[jobIdx].status) || 'Planned';
+            const j = cd.jobs[jobIdx];
+            const host = document.getElementById('leaveMenuHost');
+            const rect = e.target.getBoundingClientRect();
+            const menu = document.createElement('div');
+            menu.className = 'leave-menu';
+            menu.style.top = (window.scrollY + rect.bottom + 4) + 'px';
+            menu.style.left = (window.scrollX + rect.left) + 'px';
+            const statusBtns = JOB_STATUSES.map(s => `<button onclick="setJobStatus(${mainIdx}, '${dayKey}', ${jobIdx}, '${s}')" class="${current === s ? 'text-blue-600' : ''}">${s}</button>`).join('');
+            const divider = `<div style="border-top:1px solid #e2e8f0;margin:4px 0;"></div>`;
+            const copyBtns = `<button onclick="copyJobForward(${mainIdx}, '${dayKey}', ${jobIdx})">&#8594; Copy to remaining days</button>
+                <button onclick="copyJobForwardWeek(${mainIdx}, '${dayKey}', ${jobIdx})">&#8594; Copy to next week too</button>
+                <button onclick="duplicateJobToPending(${mainIdx}, '${dayKey}', ${jobIdx})">&#9112; Duplicate to Pending Sites</button>
+                <button onclick="addEngToJob(${mainIdx}, '${dayKey}', ${jobIdx})">&#43; Add engineers</button>`;
+            menu.innerHTML = statusBtns + divider + copyBtns;
+            host.appendChild(menu);
+            setTimeout(() => document.addEventListener('click', closeLeaveMenu, { once: true }), 0);
+        }
+        function setJobStatus(mainIdx, dayKey, jobIdx, status) {
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            if (cd.jobs[jobIdx]) {
+                cd.jobs[jobIdx].status = status;
+                row.days[dayKey] = cd;
+                logActivity(`Set "${cd.jobs[jobIdx].text}" (${row.engineer}, ${activeMonth}) status to ${status}`);
+            }
+            closeLeaveMenu();
+            autoSave();
+            loadMonth();
+        }
+
+        function copyJobForward(mainIdx, dayKey, jobIdx, includeNextWeek = false) {
+            closeLeaveMenu();
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const chip = cd.jobs[jobIdx];
+            if (!chip) return;
+            const allRows = data.schedule[activeMonth].data;
+            const allKeys = Object.keys(row.days);
+            const startIdx = allKeys.indexOf(dayKey);
+            if (startIdx === -1) return;
+            let count = 0;
+            // Get all weeks in order so we can potentially continue into next week
+            const weeks = [...new Set(allRows.map(r => r.week))];
+            const myWeekIdx = weeks.indexOf(row.week);
+            const weeksToProcess = includeNextWeek ? weeks.slice(myWeekIdx) : [row.week];
+            allRows.filter(r => r.engineer === row.engineer && weeksToProcess.includes(r.week)).forEach(targetRow => {
+                const targetKeys = Object.keys(targetRow.days);
+                targetKeys.forEach((tk, ti) => {
+                    // for same row same week: skip days up to and including startIdx
+                    if (targetRow === row && allKeys.indexOf(tk) <= startIdx) return;
+                    const [, dStr] = tk.split('___');
+                    if (tk.includes('--') || bankHolidays[dStr]) return;
+                    const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                    if (lv) return;
+                    const tcd = getCellData(targetRow.days[tk]);
+                    if (!tcd.jobs.find(j => j.text === chip.text)) {
+                        tcd.jobs.push(JSON.parse(JSON.stringify(chip)));
+                        targetRow.days[tk] = tcd;
+                        count++;
+                    }
+                });
+            });
+            if (count > 0) { logActivity(`Copied "${chip.text}" forward ${count} day(s) for ${row.engineer} (${activeMonth})`); autoSave(); loadMonth(); }
+            else { alert("No available days to copy to."); }
+        }
+        function copyJobForwardWeek(mainIdx, dayKey, jobIdx) {
+            copyJobForward(mainIdx, dayKey, jobIdx, true);
+        }
+
+        function duplicateJobToPending(mainIdx, dayKey, jobIdx) {
+            closeLeaveMenu();
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const j = cd.jobs[jobIdx];
+            if (!j) return;
+            const site = j.site || {};
+            const job = {
+                id: 'dup_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+                name: j.text,
+                location: site.location || '',
+                postcode: site.postcode || '',
+                systemSize: site.systemSize || '',
+                systemType: site.systemType || '',
+                mountingSystem: site.mountingSystem || '',
+                jobType: site.jobType || j.jobType || '',
+                notes: site.notes || ''
+            };
+            if (!data.globalBacklog) data.globalBacklog = [];
+            data.globalBacklog.push(job);
+            logActivity(`Duplicated "${j.text}" back to Pending Sites from ${row.engineer} (${activeMonth})`);
+            autoSave();
+            renderJobs();
+            // Flash the pending panel to draw attention
+            const panel = document.getElementById('jobList');
+            if (panel) { panel.style.transition = 'background 0.3s'; panel.style.background = '#fef3c7'; setTimeout(() => panel.style.background = '', 800); }
+        }
+
+        function addEngToJob(mainIdx, dayKey, jobIdx) {
+            closeLeaveMenu();
+            const row = data.schedule[activeMonth].data[mainIdx];
+            const cd = getCellData(row.days[dayKey]);
+            const chip = cd.jobs[jobIdx];
+            if (!chip) return;
+            openMultiEng(JSON.parse(JSON.stringify(chip)), dayKey, mainIdx);
+        }
+
+        function renderJobChips(mainIdx, dayKey, cd) {
+            return cd.jobs.map((j, jIdx) => {
+                const jt = JOB_TYPES[j.jobType] || { bg: "#e2e8f0", text: "#1e293b" };
+                const tip = jobTooltipText(Object.assign({ jobType: j.jobType }, j.site || {}));
+                const status = j.status || 'Planned';
+                const statusCls = status === 'In Progress' ? 'job-status-progress' : status === 'Complete' ? 'job-status-complete' : status === 'Snagged' ? 'job-status-snagged' : '';
+                const statusPrefix = status === 'Snagged' ? '\u26A0\uFE0F ' : status === 'Complete' ? '\u2713 ' : status === 'In Progress' ? '\u25B6 ' : '';
+                return `<div class="job-chip ${statusCls}" draggable="true" ondragstart="dragChipStart(event, ${mainIdx}, '${dayKey}', ${jIdx})" onclick="openJobStatusMenu(event, ${mainIdx}, '${dayKey}', ${jIdx})" style="background:${jt.bg};color:${jt.text};" data-tooltip="${escapeHtml(tip + '\nStatus: ' + status)}" title="Click to set status. Drag back to Pending Sites to un-allocate.">
+                            <span class="job-chip-text">${statusPrefix}${escapeHtml(j.text)}</span>
+                            <span onclick="event.stopPropagation(); findLinkedJobs('${escapeHtml(j.text).replace(/'/g,"\\'")}')" class="no-print job-chip-link" title="Find other instances of this site this month">&#128279;</span>
+                            <span onclick="event.stopPropagation(); removeJobEntry(${mainIdx}, '${dayKey}', ${jIdx})" class="no-print job-chip-x">&times;</span>
+                        </div>`;
+            }).join('');
+        }
+
+        function findLinkedJobs(siteName) {
+            const term = siteName.trim().toLowerCase();
+            const info = data.schedule[activeMonth];
+            const hits = [];
+            info.data.forEach(row => {
+                Object.entries(row.days).forEach(([dayKey, val]) => {
+                    const cd = getCellData(val);
+                    cd.jobs.forEach(j => {
+                        if (j.text.trim().toLowerCase() === term) hits.push(`${row.engineer} \u2014 ${dayKey.split('___')[0]} (${j.jobType || 'No type'}, ${j.status || 'Planned'})`);
+                    });
+                });
+            });
+            if (hits.length <= 1) { alert(`"${siteName}" only appears once in ${activeMonth}.`); return; }
+            alert(`"${siteName}" appears ${hits.length} times in ${activeMonth}:\n\n` + hits.join('\n'));
+        }
+
+        // --- LEAVE / HOLIDAY ---
+        const LEAVE_TYPES = { AL: 'Annual Leave', SICK: 'Sick', UNPAID: 'Unpaid Leave', OTHER: 'Other' };
+        function leaveLabel(code) { return LEAVE_TYPES[code] || code; }
+
+        function openLeaveMenu(e, mainIdx, dayKey, engineer) {
+            e.stopPropagation();
+            closeLeaveMenu();
+            const dStr = dayKey.split('___')[1];
+            const current = (data.leaveLog[engineer] || {})[dStr];
+            const host = document.getElementById('leaveMenuHost');
+            const rect = e.target.getBoundingClientRect();
+            const menu = document.createElement('div');
+            menu.className = 'leave-menu';
+            menu.style.top = (window.scrollY + rect.bottom + 4) + 'px';
+            menu.style.left = (window.scrollX + rect.left) + 'px';
+            let optsHtml = `<button onclick="setLeave('${engineer.replace(/'/g,"\\'")}','${dStr}',null)" class="${!current ? 'text-blue-600' : ''}">None</button>`;
+            Object.keys(LEAVE_TYPES).forEach(code => {
+                optsHtml += `<button onclick="setLeave('${engineer.replace(/'/g,"\\'")}','${dStr}','${code}')" class="${current === code ? 'text-blue-600' : ''}">${LEAVE_TYPES[code]}</button>`;
+            });
+            menu.innerHTML = optsHtml;
+            host.appendChild(menu);
+            setTimeout(() => document.addEventListener('click', closeLeaveMenu, { once: true }), 0);
+        }
+        function closeLeaveMenu() { document.getElementById('leaveMenuHost').innerHTML = ""; }
+
+        function setLeave(engineer, dStr, code) {
+            if (!data.leaveLog[engineer]) data.leaveLog[engineer] = {};
+            if (code) { data.leaveLog[engineer][dStr] = code; logActivity(`Set leave for ${engineer} on ${dStr}: ${LEAVE_TYPES[code] || code}`); }
+            else { delete data.leaveLog[engineer][dStr]; logActivity(`Cleared leave for ${engineer} on ${dStr}`); }
+            closeLeaveMenu();
+            autoSave();
+            loadMonth();
+        }
+
+        function openLeaveReport() {
+            const sel = document.getElementById('leaveYearSelect');
+            if (sel.options.length === 0) {
+                for (let y = 2026; y <= 2030; y++) {
+                    const o = document.createElement('option'); o.value = y; o.innerText = y;
+                    if (y === new Date().getFullYear()) o.selected = true;
+                    sel.appendChild(o);
+                }
+            }
+            renderLeaveReport();
+            const modal = document.getElementById('leaveModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeLeaveReport() {
+            const modal = document.getElementById('leaveModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+        function renderLeaveReport() {
+            const year = document.getElementById('leaveYearSelect').value;
+            const body = document.getElementById('leaveReportBody');
+            const engineers = Object.keys(data.leaveLog).sort();
+            if (engineers.length === 0) { body.innerHTML = `<p class="text-center text-slate-400 text-xs font-bold uppercase py-10">No leave recorded yet</p>`; return; }
+            let html = "";
+            engineers.forEach(eng => {
+                const entries = data.leaveLog[eng] || {};
+                const counts = { AL: 0, SICK: 0, UNPAID: 0, OTHER: 0 };
+                Object.keys(entries).forEach(dStr => {
+                    if (dStr.startsWith(year + '-')) counts[entries[dStr]] = (counts[entries[dStr]] || 0) + 1;
+                });
+                const total = counts.AL + counts.SICK + counts.UNPAID + counts.OTHER;
+                if (total === 0) return;
+                const colors = getEngColor(eng);
+                html += `<div class="flex items-center justify-between border border-slate-200 rounded-xl p-3">
+                    <span class="${colors.name} px-2 py-1 rounded-lg text-[11px] font-black">${escapeHtml(eng)}</span>
+                    <div class="flex gap-4 text-[11px] font-bold text-slate-600">
+                        <span>AL: <b class="text-slate-900">${counts.AL}</b></span>
+                        <span>Sick: <b class="text-slate-900">${counts.SICK}</b></span>
+                        <span>Unpaid: <b class="text-slate-900">${counts.UNPAID}</b></span>
+                        <span>Other: <b class="text-slate-900">${counts.OTHER}</b></span>
+                        <span class="text-slate-900">Total: <b>${total}</b></span>
+                    </div>
+                </div>`;
+            });
+            body.innerHTML = html || `<p class="text-center text-slate-400 text-xs font-bold uppercase py-10">No leave recorded for ${year}</p>`;
+        }
+
+        // --- ACTIVITY LOG ---
+        function openActivityLog() {
+            renderActivityLog();
+            const modal = document.getElementById('activityModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeActivityLog() {
+            const modal = document.getElementById('activityModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+        function renderActivityLog() {
+            const body = document.getElementById('activityLogBody');
+            const log = (data.activityLog || []).slice().reverse();
+            if (log.length === 0) { body.innerHTML = `<p class="text-center text-slate-400 text-xs font-bold uppercase py-10">No activity recorded yet</p>`; return; }
+            body.innerHTML = log.map(entry => {
+                const d = new Date(entry.ts);
+                const stamp = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                return `<div class="flex justify-between gap-3 border-b border-slate-100 py-2">
+                    <span><b class="text-slate-900">${escapeHtml(entry.user)}</b> <span class="text-slate-500">${escapeHtml(entry.action)}</span></span>
+                    <span class="text-slate-400 font-bold whitespace-nowrap">${stamp}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // --- UTILISATION ---
+        function openUtilisation() {
+            document.getElementById('utilMonthLabel').innerText = activeMonth;
+            renderUtilisation();
+            const modal = document.getElementById('utilModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeUtilisation() {
+            const modal = document.getElementById('utilModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+        function renderUtilisation() {
+            const body = document.getElementById('utilBody');
+            const info = data.schedule[activeMonth];
+            if (!info || info.data.length === 0) { body.innerHTML = `<p class="text-center text-slate-400 text-xs font-bold uppercase py-10">No entries for ${activeMonth}</p>`; return; }
+            const byEng = {};
+            info.data.forEach(row => {
+                if (!byEng[row.engineer]) byEng[row.engineer] = { working: 0, booked: 0, leave: 0 };
+                Object.entries(row.days).forEach(([dayKey, val]) => {
+                    const [disp, dStr] = dayKey.split('___');
+                    if (disp.includes('--') || bankHolidays[dStr]) return;
+                    byEng[row.engineer].working++;
+                    const lv = (data.leaveLog[row.engineer] || {})[dStr];
+                    if (lv) { byEng[row.engineer].leave++; return; }
+                    const cd = getCellData(val);
+                    if (cd.jobs.length > 0 || cd.note) byEng[row.engineer].booked++;
+                });
+            });
+            let html = "";
+            Object.keys(byEng).sort().forEach(eng => {
+                const s = byEng[eng];
+                const available = s.working - s.leave;
+                const pct = available > 0 ? Math.round((s.booked / available) * 100) : 0;
+                const colors = getEngColor(eng);
+                html += `<div class="border border-slate-200 rounded-xl p-3">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="${colors.name} px-2 py-1 rounded-lg text-[11px] font-black">${escapeHtml(eng)}</span>
+                        <span class="text-[11px] font-bold text-slate-600">${s.booked} / ${available} days booked (${pct}%)${s.leave ? ` &bull; ${s.leave} leave` : ''}</span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div class="h-2 rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}" style="width:${Math.min(pct,100)}%"></div>
+                    </div>
+                </div>`;
+            });
+            body.innerHTML = html;
+        }
+
+        // --- ICS CALENDAR EXPORT ---
+        function openIcsExport() {
+            document.getElementById('icsMonthLabel').innerText = activeMonth;
+            const sel = document.getElementById('icsEngineerSelect');
+            const info = data.schedule[activeMonth];
+            const names = [...new Set((info ? info.data : []).map(r => r.engineer))].sort();
+            sel.innerHTML = names.map(n => `<option>${escapeHtml(n)}</option>`).join('') || `<option value="">No engineers in this month</option>`;
+            const modal = document.getElementById('icsModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeIcsExport() {
+            const modal = document.getElementById('icsModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+        function icsEscape(s) { return String(s || "").replace(/[\\;,]/g, m => '\\' + m).replace(/\n/g, '\\n'); }
+        function downloadIcsForEngineer() {
+            const eng = document.getElementById('icsEngineerSelect').value;
+            if (!eng) return;
+            const info = data.schedule[activeMonth];
+            const rows = info.data.filter(r => r.engineer === eng);
+            let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//GreenBridge//Whereabouts Planner//EN\r\nCALSCALE:GREGORIAN\r\n";
+            const stampNow = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+            rows.forEach(row => {
+                Object.entries(row.days).forEach(([dayKey, val]) => {
+                    const [disp, dStr] = dayKey.split('___');
+                    if (disp.includes('--') || !dStr) return;
+                    const lv = (data.leaveLog[eng] || {})[dStr];
+                    const cd = getCellData(val);
+                    const dateCompact = dStr.replace(/-/g, '');
+                    const nextDay = new Date(dStr); nextDay.setDate(nextDay.getDate() + 1);
+                    const nextCompact = nextDay.toISOString().slice(0,10).replace(/-/g, '');
+                    if (lv) {
+                        ics += `BEGIN:VEVENT\r\nUID:leave-${eng}-${dStr}@gbr-planner\r\nDTSTAMP:${stampNow}\r\nDTSTART;VALUE=DATE:${dateCompact}\r\nDTEND;VALUE=DATE:${nextCompact}\r\nSUMMARY:${icsEscape(leaveLabel(lv))}\r\nEND:VEVENT\r\n`;
+                        return;
+                    }
+                    if (cd.jobs.length === 0 && !cd.note) return;
+                    const summary = cd.jobs.length ? cd.jobs.map(j => j.text).join(' + ') : cd.note;
+                    const descParts = cd.jobs.map(j => jobTooltipText(Object.assign({ jobType: j.jobType }, j.site || {})));
+                    if (cd.note) descParts.push('Note: ' + cd.note);
+                    ics += `BEGIN:VEVENT\r\nUID:job-${eng}-${dStr}@gbr-planner\r\nDTSTAMP:${stampNow}\r\nDTSTART;VALUE=DATE:${dateCompact}\r\nDTEND;VALUE=DATE:${nextCompact}\r\nSUMMARY:${icsEscape(summary)}\r\nDESCRIPTION:${icsEscape(descParts.join('\\n\\n'))}\r\nEND:VEVENT\r\n`;
+                });
+            });
+            ics += "END:VCALENDAR\r\n";
+            const blob = new Blob([ics], { type: 'text/calendar' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `${eng.replace(/[^a-z0-9]/gi,'_')}-${activeMonth.replace(/[^a-z0-9]/gi,'_')}.ics`;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+        }
+        function addEngineerToWeek(w) { const n = prompt("Name:"); if(n) { const sample = data.schedule[activeMonth].data.find(r=>r.week===w); let days={}; if(sample) Object.keys(sample.days).forEach(k=>days[k]=""); else days={"Mon":""}; data.schedule[activeMonth].data.push({week:w, engineer:n, days:days}); logActivity(`Added engineer "${n}" to ${w} (${activeMonth})`); autoSave(); loadMonth(); } }
+        
+        function copyRight(mainIdx, currentDayKey) {
+            const allRows = data.schedule[activeMonth].data;
+            const rowData = allRows[mainIdx];
+            const engName = rowData.engineer;
+            const currentVal = rowData.days[currentDayKey];
+            if (!currentVal && typeof currentVal !== 'string') return;
+            const cloneVal = () => JSON.parse(JSON.stringify(currentVal));
+
+            const monthIdx = data.months.indexOf(activeMonth);
+            const hasNextMonth = monthIdx < data.months.length - 1;
+            const nextMonthName = hasNextMonth ? data.months[monthIdx + 1] : null;
+
+            const jobLabel = getCellData(currentVal).jobs.map(j=>j.text).join(', ') || 'this cell';
+            const scope = prompt(
+                `Copy "${jobLabel}" for ${engName}:\n\n` +
+                `  1 = Next day only\n` +
+                `  2 = Rest of this week\n` +
+                `  3 = Rest of this month\n` +
+                (nextMonthName ? `  4 = Rest of this month + into ${nextMonthName}\n` : '') +
+                `\nType a number and press OK:`,
+                '1'
+            );
+            if (!scope) return;
+            const s = scope.trim();
+
+            let count = 0;
+
+            function fillRows(monthName, startRowIdx, startDayKey, nextDayOnly = false) {
+                const mRows = data.schedule[monthName].data.filter(r => r.engineer === engName);
+                let filled = 0;
+                mRows.forEach((row, ri) => {
+                    if (ri < startRowIdx) return;
+                    if (nextDayOnly && filled > 0) return;
+                    const keys = Object.keys(row.days);
+                    const startAfter = (ri === startRowIdx && startDayKey) ? keys.indexOf(startDayKey) : -1;
+                    keys.forEach((key, ki) => {
+                        if (nextDayOnly && filled > 0) return;
+                        if (ki <= startAfter) return;
+                        const [, dStr] = key.split('___');
+                        if (key.includes('--') || bankHolidays[dStr]) return;
+                        if ((data.leaveLog[engName] || {})[dStr]) return;
+                        row.days[key] = cloneVal();
+                        count++; filled++;
+                    });
+                });
+            }
+
+            if (s === '1') {
+                // Next working day only
+                const keys = Object.keys(rowData.days);
+                const startAfter = keys.indexOf(currentDayKey);
+                let done = false;
+                keys.forEach((key, ki) => {
+                    if (done || ki <= startAfter) return;
+                    const [, dStr] = key.split('___');
+                    if (key.includes('--') || bankHolidays[dStr]) return;
+                    if ((data.leaveLog[engName] || {})[dStr]) return;
+                    rowData.days[key] = cloneVal();
+                    count++; done = true;
+                });
+                // If we hit the end of the week, spill into next week's row
+                if (!done) {
+                    const engRows = allRows.filter(r => r.engineer === engName);
+                    const nextRow = engRows[engRows.indexOf(rowData) + 1];
+                    if (nextRow) fillRows(activeMonth, allRows.filter(r=>r.engineer===engName).indexOf(nextRow), null, true);
+                }
+            } else if (s === '2') {
+                const keys = Object.keys(rowData.days);
+                const startAfter = keys.indexOf(currentDayKey);
+                keys.forEach((key, ki) => {
+                    if (ki <= startAfter) return;
+                    const [, dStr] = key.split('___');
+                    if (key.includes('--') || bankHolidays[dStr]) return;
+                    if ((data.leaveLog[engName] || {})[dStr]) return;
+                    rowData.days[key] = cloneVal();
+                    count++;
+                });
+            } else if (s === '3') {
+                const engRows = allRows.filter(r => r.engineer === engName);
+                fillRows(activeMonth, engRows.indexOf(rowData), currentDayKey);
+            } else if (s === '4' && nextMonthName) {
+                const engRows = allRows.filter(r => r.engineer === engName);
+                fillRows(activeMonth, engRows.indexOf(rowData), currentDayKey);
+                if (data.schedule[nextMonthName] && data.schedule[nextMonthName].data.length > 0) {
+                    fillRows(nextMonthName, 0, null);
+                } else {
+                    alert(`${nextMonthName} hasn't been generated yet — open it first then copy again.`);
+                }
+            }
+
+            if (count > 0) {
+                logActivity(`Copied "${jobLabel}" forward ${count} day(s) for ${engName}`);
+                autoSave();
+                loadMonth();
+            } else {
+                alert('No available days found to copy into.');
+            }
+        }
+
+        function tryUnlock() {
+            const nameInput = document.getElementById('nameInput');
+            const input = document.getElementById('passInput');
+            const err = document.getElementById('passError');
+            const name = nameInput.value.trim();
+            if (!name || input.value !== APP_PASSWORD) {
+                err.classList.remove('hidden');
+                input.value = "";
+                input.focus();
+                return;
+            }
+            err.classList.add('hidden');
+            sessionStorage.setItem(UNLOCK_KEY, "1");
+            sessionStorage.setItem(USER_NAME_KEY, name);
+            currentUser = name;
+            unlockApp();
+        }
+
+        function unlockApp() {
+            document.getElementById('passGate').classList.add('hidden');
+            auth.signInAnonymously().then(() => {
+                connectCloud();
+            }).catch(err => {
+                console.error("Anonymous sign-in failed", err);
+                setCloudStatus('offline', 'Offline (Local Storage Only)');
+            });
+        }
+
+        window.onload = () => {
+            init();
+            if (sessionStorage.getItem(UNLOCK_KEY) === "1") {
+                currentUser = sessionStorage.getItem(USER_NAME_KEY) || "Unknown";
+                unlockApp();
+            } else {
+                document.getElementById('nameInput').focus();
+            }
+        };
+    </script>
+</body>
+</html>
