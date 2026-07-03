@@ -227,6 +227,10 @@
                                 <option>Service Remedials</option>
                             </select>
                             <textarea id="jobNotes" placeholder="Notes - what needs doing..." rows="3" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none resize-none"></textarea>
+                            <div>
+                                <label class="text-[10px] font-black uppercase text-slate-400 block mb-1">Provisional Date</label>
+                                <input type="date" id="jobProvDate" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                            </div>
                             <button onclick="addJob()" class="w-full bg-slate-900 text-white py-2 rounded-lg font-black text-[11px] uppercase hover:bg-black">Add Site</button>
                         </div>
                         <div id="jobList" class="max-h-[300px] md:max-h-[450px] overflow-y-auto p-4 space-y-3 bg-white" ondragover="event.preventDefault(); this.classList.add('joblist-dragover')" ondragleave="this.classList.remove('joblist-dragover')" ondrop="returnJobToPending(event)"></div>
@@ -302,6 +306,57 @@
     </div>
 
     <div id="leaveMenuHost"></div>
+
+    <div id="editJobModal" class="fixed inset-0 z-[150] hidden items-center justify-center bg-black/40 no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center sticky top-0">
+                <h3 class="font-black uppercase text-sm tracking-widest">Edit Pending Site</h3>
+                <button onclick="closeEditJob()" class="text-2xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="p-5 space-y-2">
+                <input type="text" id="editJobName" placeholder="Site name *" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none font-bold">
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="editJobLocation" placeholder="Location / town" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                    <input type="text" id="editJobPostcode" placeholder="Postcode" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" id="editJobSystemSize" placeholder="System size (kWp)" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                    <select id="editJobSystemType" class="px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                        <option value="">Sys Type...</option>
+                        <option>Standard</option><option>SolarEdge</option><option>SolShare</option>
+                        <option>Sflex</option><option>Multi Apartments - Non SolShare</option>
+                        <option>Batteries</option><option>Powerframe</option><option>Carport</option>
+                        <option>EV Chargers</option><option>Other</option>
+                    </select>
+                </div>
+                <select id="editJobMountingSystem" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                    <option value="">Mounting System...</option>
+                    <option>Viridian</option><option>Pitched Slate</option><option>Pitched Tiled</option>
+                    <option>In Roof GSE</option><option>In Roof Other</option><option>Standing Seam</option>
+                    <option>Metal Trap</option><option>Flat Roof - VDV</option><option>Flat Roof Other</option>
+                    <option>Bauder Bio</option><option>Bauder XL</option><option>Mechanical Fix</option>
+                    <option>Sflex</option><option>Kalzip</option><option>K2</option>
+                    <option>Wall Mount</option><option>Canopy</option><option>Ground Mount</option><option>Other</option>
+                </select>
+                <select id="editJobJobType" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none bg-white">
+                    <option value="">Job Type...</option>
+                    <option>Site Survey</option><option>Panel Install</option><option>Electrical Install</option>
+                    <option>Panel & Electrical Install</option><option>Snags</option><option>Commissioning</option>
+                    <option>Handover</option><option>DNO Witness Testing</option><option>Service</option>
+                    <option>Service Remedials</option>
+                </select>
+                <textarea id="editJobNotes" placeholder="Notes - what needs doing..." rows="3" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none resize-none"></textarea>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-slate-400 block mb-1">Provisional Date</label>
+                    <input type="date" id="editJobProvDate" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none">
+                </div>
+                <div class="flex gap-2 pt-2">
+                    <button onclick="saveEditJob()" class="flex-1 bg-slate-900 text-white py-2.5 rounded-xl font-black text-xs uppercase hover:bg-black">Save</button>
+                    <button onclick="closeEditJob()" class="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-xl font-black text-xs uppercase hover:bg-slate-200">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div id="multiEngModal" class="fixed inset-0 z-[150] hidden items-center justify-center bg-black/40 no-print p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
@@ -998,7 +1053,8 @@
                 systemType: document.getElementById('jobSystemType').value,
                 mountingSystem: document.getElementById('jobMountingSystem').value,
                 jobType: document.getElementById('jobJobType').value,
-                notes: document.getElementById('jobNotes').value.trim()
+                notes: document.getElementById('jobNotes').value.trim(),
+                provDate: document.getElementById('jobProvDate').value
             };
             if (!data.globalBacklog) data.globalBacklog = [];
             data.globalBacklog.push(job);
@@ -1006,14 +1062,56 @@
             document.getElementById('jobSystemType').value = "";
             document.getElementById('jobMountingSystem').value = "";
             document.getElementById('jobJobType').value = "";
+            document.getElementById('jobProvDate').value = "";
             autoSave();
             renderJobs();
         }
-        function delJob(i) { data.globalBacklog.splice(i, 1); autoSave(); renderJobs(); }
+        function delJob(i) { if (!confirm('Remove this pending site?')) return; data.globalBacklog.splice(i, 1); autoSave(); renderJobs(); }
         function copyJob(t) { navigator.clipboard.writeText(t); }
+
+        let editingJobIdx = null;
+        function openEditJob(i) {
+            editingJobIdx = i;
+            const job = data.globalBacklog[i];
+            document.getElementById('editJobName').value = job.name || '';
+            document.getElementById('editJobLocation').value = job.location || '';
+            document.getElementById('editJobPostcode').value = job.postcode || '';
+            document.getElementById('editJobSystemSize').value = job.systemSize || '';
+            document.getElementById('editJobSystemType').value = job.systemType || '';
+            document.getElementById('editJobMountingSystem').value = job.mountingSystem || '';
+            document.getElementById('editJobJobType').value = job.jobType || '';
+            document.getElementById('editJobNotes').value = job.notes || '';
+            document.getElementById('editJobProvDate').value = job.provDate || '';
+            const modal = document.getElementById('editJobModal');
+            modal.classList.remove('hidden'); modal.classList.add('flex');
+        }
+        function closeEditJob() {
+            editingJobIdx = null;
+            const modal = document.getElementById('editJobModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+        function saveEditJob() {
+            if (editingJobIdx === null) return;
+            const name = document.getElementById('editJobName').value.trim();
+            if (!name) { alert('Site name is required.'); return; }
+            const job = data.globalBacklog[editingJobIdx];
+            job.name = name;
+            job.location = document.getElementById('editJobLocation').value.trim();
+            job.postcode = document.getElementById('editJobPostcode').value.trim();
+            job.systemSize = document.getElementById('editJobSystemSize').value.trim();
+            job.systemType = document.getElementById('editJobSystemType').value;
+            job.mountingSystem = document.getElementById('editJobMountingSystem').value;
+            job.jobType = document.getElementById('editJobJobType').value;
+            job.notes = document.getElementById('editJobNotes').value.trim();
+            job.provDate = document.getElementById('editJobProvDate').value;
+            closeEditJob();
+            autoSave();
+            renderJobs();
+        }
 
         function jobTooltipText(job) {
             const lines = [];
+            if (job.provDate) lines.push('Prov. Date: ' + new Date(job.provDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }));
             if (job.jobType) lines.push('Job: ' + job.jobType);
             if (job.location) lines.push('Location: ' + job.location);
             if (job.postcode) lines.push('Postcode: ' + job.postcode);
@@ -1026,10 +1124,22 @@
 
         function renderJobs() {
             const l = document.getElementById('jobList'); l.innerHTML = "";
-            (data.globalBacklog || []).forEach((j, i) => {
-                const job = (typeof j === 'string') ? { name: j } : j; // backward compat with old plain-string entries
+            const backlog = (data.globalBacklog || []).filter(j => typeof j !== 'string');
+            if (backlog.length === 0) {
+                l.innerHTML = `<p class="text-center text-slate-300 text-[11px] font-bold uppercase py-6">No pending sites</p>`;
+                return;
+            }
+            // Sort: dated jobs first (earliest first), then undated
+            const sorted = backlog.map((j, i) => ({...j, _idx: i})).sort((a, b) => {
+                if (a.provDate && b.provDate) return a.provDate.localeCompare(b.provDate);
+                if (a.provDate) return -1;
+                if (b.provDate) return 1;
+                return 0;
+            });
+            sorted.forEach(job => {
+                const i = job._idx;
                 const d = document.createElement('div');
-                d.className = "job-pill p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold shadow-sm flex justify-between items-start cursor-pointer hover:bg-amber-50 relative";
+                d.className = "job-pill p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold shadow-sm hover:bg-amber-50 relative";
                 d.setAttribute('draggable', 'true');
                 d.ondragstart = (e) => {
                     e.dataTransfer.setData('application/json', JSON.stringify(job));
@@ -1037,14 +1147,32 @@
                     e.dataTransfer.effectAllowed = 'copy';
                 };
                 const jt = JOB_TYPES[job.jobType];
+                if (jt) d.style.borderLeft = `4px solid ${jt.bg}`;
                 const meta = [job.jobType, job.location, job.postcode, job.systemSize ? job.systemSize + ' kWp' : '', job.systemType, job.mountingSystem || job.roofType].filter(Boolean).join(' \u2022 ');
-                if (jt) { d.style.borderLeft = `4px solid ${jt.bg}`; d.style.boxShadow = `inset 3px 0 0 ${jt.bg}`; }
-                d.innerHTML = `<span onclick="copyJob('${job.name.replace(/'/g, "\\'")}')" class="flex-1" title="Click to copy, or drag onto a diary cell">
-                        ${escapeHtml(job.name)}
-                        ${meta ? `<div class="job-pill-meta">${escapeHtml(meta)}</div>` : ''}
-                    </span>
-                    <span onclick="delJob(${i})" class="text-slate-300 hover:text-red-500 font-bold text-sm px-1">×</span>`;
-                if (meta || job.notes) { d.title = jobTooltipText(job); }
+
+                let dateBadge = '';
+                if (job.provDate) {
+                    const pd = new Date(job.provDate);
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const diff = Math.round((pd - today) / 86400000);
+                    const dateStr = pd.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+                    const urgency = diff < 0 ? 'bg-red-100 text-red-700' : diff <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700';
+                    const label = diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : dateStr;
+                    dateBadge = `<span class="inline-block ${urgency} px-2 py-0.5 rounded-full text-[9px] font-black uppercase mb-1 mr-1">${label}</span>`;
+                }
+
+                d.innerHTML = `<div class="flex justify-between items-start gap-1">
+                    <div class="flex-1 min-w-0">
+                        ${dateBadge}<span class="font-black">${escapeHtml(job.name)}</span>
+                        ${meta ? `<div class="job-pill-meta mt-0.5">${escapeHtml(meta)}</div>` : ''}
+                        ${job.notes ? `<div class="job-pill-meta italic text-slate-400 mt-0.5 truncate">${escapeHtml(job.notes)}</div>` : ''}
+                    </div>
+                    <div class="flex flex-col gap-1 ml-1 shrink-0">
+                        <button onclick="event.stopPropagation(); openEditJob(${i})" class="text-slate-400 hover:text-blue-600 text-[10px] font-black px-1.5 py-0.5 border border-slate-200 rounded hover:border-blue-300 bg-white" title="Edit">✏️</button>
+                        <button onclick="event.stopPropagation(); delJob(${i})" class="text-slate-300 hover:text-red-500 font-bold text-sm px-1.5 py-0 border border-slate-200 rounded hover:border-red-300 bg-white" title="Delete">&times;</button>
+                    </div>
+                </div>`;
+                if (meta || job.notes || job.provDate) d.title = jobTooltipText(job);
                 l.appendChild(d);
             });
         }
