@@ -168,9 +168,13 @@
                 <!-- FIXED PENDING SITES PANEL - always visible regardless of scroll -->
                 <div class="no-print lg:fixed lg:right-0 lg:top-0 lg:h-screen lg:w-72 xl:w-80 bg-white lg:border-l lg:border-slate-200 lg:shadow-2xl flex flex-col lg:z-20
                             static w-full rounded-2xl border border-slate-200 shadow-xl mb-8 lg:mb-0 lg:rounded-none overflow-hidden">
-                    <div class="bg-amber-500 p-4 text-white flex justify-between items-center flex-shrink-0">
+                    <div class="bg-amber-500 p-4 text-white flex justify-between items-center flex-shrink-0 gap-2">
                         <h3 class="font-black text-xs flex items-center gap-2 uppercase">Pending Sites</h3>
-                        <button onclick="toggleJobForm()" id="jobFormToggle" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-[10px] font-black uppercase">+ Add</button>
+                        <div class="flex gap-1.5 flex-shrink-0">
+                            <button onclick="document.getElementById('importJobFile').click()" title="Import a job exported from the Project Tracker" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-[10px] font-black uppercase">📥 Import</button>
+                            <input type="file" id="importJobFile" accept="application/json" class="hidden" onchange="importJobFile(this.files[0])">
+                            <button onclick="toggleJobForm()" id="jobFormToggle" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-[10px] font-black uppercase">+ Add</button>
+                        </div>
                     </div>
                     <div id="jobForm" class="hidden p-4 bg-slate-50 border-b border-slate-100 space-y-2 flex-shrink-0 overflow-y-auto" style="max-height:55vh">
                             <input type="text" id="jobName" placeholder="Site name *" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none font-bold">
@@ -711,6 +715,32 @@
             a.href = url; a.download = `whereabouts-planner-backup-${stamp}.json`;
             document.body.appendChild(a); a.click(); a.remove();
             URL.revokeObjectURL(url);
+        }
+
+        function importJobFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (!parsed.isGreenbridgePendingJob || !parsed.job) {
+                        alert("That file doesn't look like a Project Tracker job export.");
+                        return;
+                    }
+                    const job = parsed.job;
+                    if (!job.name) { alert("Imported job is missing a site name."); return; }
+                    job.id = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+                    if (!data.globalBacklog) data.globalBacklog = [];
+                    data.globalBacklog.push(job);
+                    autoSave();
+                    renderJobs();
+                    alert(`"${job.name}" added to Pending Sites.`);
+                } catch(err) {
+                    alert("Could not read that job file: " + err.message);
+                }
+                document.getElementById('importJobFile').value = '';
+            };
+            reader.readAsText(file);
         }
 
         function importData(file) {
