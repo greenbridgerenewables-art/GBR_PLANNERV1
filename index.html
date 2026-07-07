@@ -176,6 +176,20 @@
                             <button onclick="toggleJobForm()" id="jobFormToggle" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-[10px] font-black uppercase">+ Add</button>
                         </div>
                     </div>
+                    <div class="p-3 border-b border-slate-100 flex-shrink-0 bg-white space-y-2">
+                        <div class="relative">
+                            <input type="text" id="jobSearchInput" placeholder="Search pending sites..." oninput="renderJobs()" class="w-full pl-8 pr-7 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-amber-400">
+                            <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300 text-xs">&#128269;</span>
+                            <button onclick="document.getElementById('jobSearchInput').value=''; renderJobs()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-xs font-black" title="Clear search">&times;</button>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span id="jobListCount" class="text-[10px] font-black uppercase text-slate-400"></span>
+                            <div class="flex gap-2">
+                                <button onclick="setAllJobsCollapsed(false)" class="text-[9px] font-black uppercase text-blue-600 hover:underline">Expand All</button>
+                                <button onclick="setAllJobsCollapsed(true)" class="text-[9px] font-black uppercase text-slate-400 hover:underline">Collapse All</button>
+                            </div>
+                        </div>
+                    </div>
                     <div id="jobForm" class="hidden p-4 bg-slate-50 border-b border-slate-100 space-y-2 flex-shrink-0 overflow-y-auto" style="max-height:55vh">
                             <input type="text" id="jobName" placeholder="Site name *" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none font-bold">
                             <div class="grid grid-cols-2 gap-2">
@@ -1154,14 +1168,59 @@
             return lines.join('\n') || 'No further details';
         }
 
+        // Tracks minimized/expanded state per job (keyed by job.id). Missing entries default to
+        // collapsed (true), so any job - old or new - starts minimized until the user expands it.
+        let jobCollapsed = new Map();
+        function isJobCollapsed(id) {
+            if (!jobCollapsed.has(id)) jobCollapsed.set(id, true);
+            return jobCollapsed.get(id);
+        }
+        function toggleJobCollapse(id) {
+            jobCollapsed.set(id, !isJobCollapsed(id));
+            renderJobs();
+        }
+        function setAllJobsCollapsed(state) {
+            (data.globalBacklog || []).forEach(j => { if (j && j.id) jobCollapsed.set(j.id, state); });
+            renderJobs();
+        }
+
         function renderJobs() {
             const l = document.getElementById('jobList'); l.innerHTML = "";
-            const backlog = (data.globalBacklog || []).filter(j => typeof j !== 'string');
-            if (backlog.length === 0) {
+            const countEl = document.getElementById('jobListCount');
+            let backlog = (data.globalBacklog || []).filter(j => typeof j !== 'string');
+
+            // Backfill a stable id for any legacy job that doesn't have one yet, so its
+            // collapsed/expanded state persists correctly across re-renders.
+            let idsBackfilled = false;
+            backlog.forEach(job => {
+                if (!job.id) { job.id = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); idsBackfilled = true; }
+            });
+            if (idsBackfilled) autoSave();
+
+            const totalCount = backlog.length;
+            if (totalCount === 0) {
+                if (countEl) countEl.innerText = '';
                 l.innerHTML = `<p class="text-center text-slate-300 text-[11px] font-bold uppercase py-6">No pending sites</p>`;
                 return;
             }
-            const sorted = backlog.map((j, i) => ({...j, _idx: i})).sort((a, b) => {
+
+            const searchInput = document.getElementById('jobSearchInput');
+            const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+            if (q) {
+                backlog = backlog.filter(job => {
+                    const haystack = [job.name, job.location, job.postcode, job.jobType, job.systemType, job.mountingSystem || job.roofType, job.notes].filter(Boolean).join(' ').toLowerCase();
+                    return haystack.includes(q);
+                });
+            }
+
+            if (countEl) countEl.innerText = q ? `${backlog.length} of ${totalCount} sites` : `${totalCount} pending site${totalCount === 1 ? '' : 's'}`;
+
+            if (backlog.length === 0) {
+                l.innerHTML = `<p class="text-center text-slate-300 text-[11px] font-bold uppercase py-6">No matches for "${escapeHtml(q)}"</p>`;
+                return;
+            }
+
+            const sorted = backlog.map(j => ({...j, _idx: (data.globalBacklog || []).indexOf(j)})).sort((a, b) => {
                 if (a.provDate && b.provDate) return a.provDate.localeCompare(b.provDate);
                 if (a.provDate) return -1;
                 if (b.provDate) return 1;
@@ -1169,13 +1228,18 @@
             });
             sorted.forEach(job => {
                 const i = job._idx;
+                const collapsed = isJobCollapsed(job.id);
                 const d = document.createElement('div');
-                d.className = "job-pill p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold shadow-sm hover:bg-amber-50 relative";
+                d.className = "job-pill p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold shadow-sm hover:bg-amber-50 relative cursor-pointer";
                 d.setAttribute('draggable', 'true');
                 d.ondragstart = (e) => {
                     e.dataTransfer.setData('application/json', JSON.stringify(job));
                     e.dataTransfer.setData('text/plain', job.name);
                     e.dataTransfer.effectAllowed = 'copy';
+                };
+                d.onclick = (e) => {
+                    if (e.target.closest('button')) return;
+                    toggleJobCollapse(job.id);
                 };
                 const jt = JOB_TYPES[job.jobType];
                 if (jt) d.style.borderLeft = `4px solid ${jt.bg}`;
@@ -1192,17 +1256,34 @@
                     dateBadge = `<span class="inline-block ${urgency} px-2 py-0.5 rounded-full text-[9px] font-black uppercase mb-1 mr-1">${label}</span>`;
                 }
 
-                d.innerHTML = `<div class="flex justify-between items-start gap-1">
-                    <div class="flex-1 min-w-0">
-                        ${dateBadge}<span class="font-black">${escapeHtml(job.name)}</span>
-                        ${meta ? `<div class="job-pill-meta mt-0.5">${escapeHtml(meta)}</div>` : ''}
-                        ${job.notes ? `<div class="job-pill-meta italic text-slate-400 mt-0.5 truncate">${escapeHtml(job.notes)}</div>` : ''}
-                    </div>
-                    <div class="flex flex-col gap-1 ml-1 shrink-0">
-                        <button onclick="event.stopPropagation(); openEditJob(${i})" class="text-slate-400 hover:text-blue-600 text-[10px] font-black px-1.5 py-0.5 border border-slate-200 rounded hover:border-blue-300 bg-white" title="Edit">✏️</button>
-                        <button onclick="event.stopPropagation(); delJob(${i})" class="text-slate-300 hover:text-red-500 font-bold text-sm px-1.5 py-0 border border-slate-200 rounded hover:border-red-300 bg-white" title="Delete">&times;</button>
-                    </div>
-                </div>`;
+                const toggleIcon = collapsed ? '&#9656;' : '&#9662;'; // right-pointing when collapsed, down when expanded
+                const toggleBtn = `<button onclick="event.stopPropagation(); toggleJobCollapse('${job.id}')" class="text-slate-400 hover:text-amber-600 text-[10px] font-black px-1 shrink-0" title="${collapsed ? 'Expand' : 'Minimize'}">${toggleIcon}</button>`;
+
+                if (collapsed) {
+                    // Minimized view: just the toggle, job name, and provisional date badge.
+                    d.innerHTML = `<div class="flex justify-between items-center gap-1">
+                        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                            ${toggleBtn}
+                            <span class="font-black truncate">${escapeHtml(job.name)}</span>
+                        </div>
+                        <div class="flex items-center gap-1 shrink-0">
+                            ${dateBadge}
+                        </div>
+                    </div>`;
+                } else {
+                    d.innerHTML = `<div class="flex justify-between items-start gap-1">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5 mb-1">${toggleBtn}<span class="font-black">${escapeHtml(job.name)}</span></div>
+                            ${dateBadge}
+                            ${meta ? `<div class="job-pill-meta mt-0.5">${escapeHtml(meta)}</div>` : ''}
+                            ${job.notes ? `<div class="job-pill-meta italic text-slate-400 mt-0.5">${escapeHtml(job.notes)}</div>` : ''}
+                        </div>
+                        <div class="flex flex-col gap-1 ml-1 shrink-0">
+                            <button onclick="event.stopPropagation(); openEditJob(${i})" class="text-slate-400 hover:text-blue-600 text-[10px] font-black px-1.5 py-0.5 border border-slate-200 rounded hover:border-blue-300 bg-white" title="Edit">✏️</button>
+                            <button onclick="event.stopPropagation(); delJob(${i})" class="text-slate-300 hover:text-red-500 font-bold text-sm px-1.5 py-0 border border-slate-200 rounded hover:border-red-300 bg-white" title="Delete">&times;</button>
+                        </div>
+                    </div>`;
+                }
                 if (meta || job.notes || job.provDate) d.title = jobTooltipText(job);
                 l.appendChild(d);
             });
